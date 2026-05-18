@@ -1,0 +1,57 @@
+split,session_id,color,task,blank_rows_main,blank_rows_with_votes,blank_vote_rate,annotator_file_count,top_vote_labels
+train-cc,002,purple,task_engagement,1,0,0.00000000,1,
+train-cc,002,purple,social_engagement,1,0,0.00000000,1,
+train-cc,002,yellow,task_engagement,1,0,0.00000000,1,
+train-cc,002,yellow,social_engagement,1,0,0.00000000,1,
+train-cc,022,purple,task_engagement,1,0,0.00000000,1,
+train-cc,022,purple,social_engagement,1,0,0.00000000,1,
+train-cc,022,yellow,task_engagement,1,0,0.00000000,1,
+train-cc,022,yellow,social_engagement,1,0,0.00000000,1,
+train-cc,024,purple,task_engagement,19913,19913,1.00000000,2,nan:17492; goaloriented:10333; noplay:9658
+train-cc,024,purple,social_engagement,22333,22333,1.00000000,2,nan:17492; solitary:7629; onlooker:6429
+train-cc,024,yellow,task_engagement,19740,19740,1.00000000,2,nan:17492; noplay:9387; goaloriented:7791
+train-cc,024,yellow,social_engagement,22457,22457,1.00000000,2,nan:17492; solitary:7085; parallel:6163
+train-cc,028,purple,task_engagement,1,0,0.00000000,1,
+train-cc,028,purple,social_engagement,1,0,0.00000000,1,
+train-cc,028,yellow,task_engagement,1,0,0.00000000,1,
+train-cc,028,yellow,social_engagement,1,0,0.00000000,1,
+train-cc,037,purple,task_engagement,22278,22278,1.00000000,2,aimless:17179; goaloriented:15172; noplay:9364
+train-cc,037,purple,social_engagement,26094,26094,1.00000000,2,associative:24479; parallel:16507; cooperative:7991
+train-cc,037,yellow,task_engagement,23269,23269,1.00000000,2,goaloriented:19807; aimless:19789; noplay:6601
+train-cc,037,yellow,social_engagement,26674,26674,1.00000000,2,associative:23005; parallel:12622; solitary:6465
+train-cc,042,purple,task_engagement,21009,21009,1.00000000,2,nan:17713; goaloriented:13365; noplay:10015
+train-cc,042,purple,social_engagement,23901,23901,1.00000000,2,nan:17713; associative:9882; parallel:9513
+train-cc,042,yellow,task_engagement,19971,19971,1.00000000,2,nan:17713; goaloriented:14556; noplay:6654
+train-cc,042,yellow,social_engagement,23278,23278,1.00000000,2,nan:17090; associative:13157; parallel:8940
+train-cc,043,purple,task_engagement,1,0,0.00000000,1,
+train-cc,043,purple,social_engagement,1,0,0.00000000,1,
+train-cc,043,yellow,task_engagement,1,0,0.00000000,1,
+train-cc,043,yellow,social_engagement,1,0,0.00000000,1,
+train-cc,051,purple,task_engagement,2,0,0.00000000,1,
+train-cc,051,purple,social_engagement,2,0,0.00000000,1,
+train-cc,051,yellow,task_engagement,2,0,0.00000000,1,
+train-cc,051,yellow,social_engagement,2,0,0.00000000,1,
+train-cr,032,purple,task_engagement,1,0,0.00000000,1,
+train-cr,032,purple,social_engagement,1,0,0.00000000,1,
+train-cr,032,yellow,task_engagement,1,0,0.00000000,1,
+train-cr,032,yellow,social_engagement,1,0,0.00000000,1,
+train-cr,047,purple,task_engagement,1,0,0.00000000,1,
+train-cr,047,purple,social_engagement,1,0,0.00000000,1,
+train-cr,047,yellow,task_engagement,1,0,0.00000000,1,
+train-cr,047,yellow,social_engagement,1,0,0.00000000,1,
+train-cr,048,purple,task_engagement,1,0,0.00000000,1,
+train-cr,048,purple,social_engagement,1,0,0.00000000,1,
+train-cr,048,yellow,task_engagement,1,0,0.00000000,1,
+train-cr,048,yellow,social_engagement,1,0,0.00000000,1,
+train-cr,050,purple,task_engagement,1,0,0.00000000,1,
+train-cr,050,purple,social_engagement,1,0,0.00000000,1,
+train-cr,050,yellow,task_engagement,1,0,0.00000000,1,
+train-cr,050,yellow,social_engagement,1,0,0.00000000,1,
+train-cr,057,purple,task_engagement,1,0,0.00000000,1,
+train-cr,057,purple,social_engagement,1,0,0.00000000,1,
+train-cr,057,yellow,task_engagement,1,0,0.00000000,1,
+train-cr,057,yellow,social_engagement,1,0,0.00000000,1,
+train-cr,067,purple,task_engagement,1,0,0.00000000,1,
+train-cr,067,purple,social_engagement,1,0,0.00000000,1,
+train-cr,067,yellow,task_engagement,1,0,0.00000000,1,
+train-cr,067,yellow,social_engagement,1,0,0.00000000,1,

@@ -1,0 +1,5 @@
+split,color,task,n_frames,mean_entropy_bits
+train-cc,purple,social_engagement,72328,1.00000000
+train-cc,purple,task_engagement,63200,1.00000000
+train-cc,yellow,social_engagement,72409,1.00000000
+train-cc,yellow,task_engagement,62980,1.00000000
