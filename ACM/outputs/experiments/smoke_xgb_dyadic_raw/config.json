@@ -1,0 +1,22 @@
+{
+  "manifest": "outputs\\manifests\\model_processed_manifest_audio_egemaps_raw_dyadic.csv",
+  "output_root": "C:\\Users\\anec\\projects\\mltac\\ACM\\outputs\\experiments",
+  "run_name": "smoke_xgb_dyadic_raw",
+  "train_split": "train_internal",
+  "val_split": "val_internal",
+  "window_size": 500,
+  "stride": 125,
+  "include_minmax": false,
+  "max_train_windows": 64,
+  "n_estimators": 10,
+  "max_depth": 2,
+  "learning_rate": 0.03,
+  "subsample": 0.8,
+  "colsample_bytree": 0.8,
+  "reg_lambda": 1.0,
+  "seed": 13,
+  "n_train_windows": 64,
+  "n_val_windows": 2570,
+  "window_feature_dim": 352,
+  "output_dim": 2
+}

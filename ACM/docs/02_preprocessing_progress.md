@@ -1,14 +1,23 @@
 # Preprocessing Progress
 
-This document tracks what has been built so far, why it was done, and which scripts/outputs correspond to each step. It is intended to be updated as UCloud runs are added.
+This document tracks the data-preparation pipeline: what has been built, why it was done, and which scripts/outputs correspond to each step. Model architecture details and experiment logs are kept in separate modelling documents.
 
-## Current Goal
+## Current Purpose
 
-Build a clean preprocessing pipeline that can be pushed to GitHub and reused on UCloud. The pipeline should prepare consistent model inputs for audio and visual feature-set experiments.
+Prepare consistent NOXI / NOXI-J inputs that can be reused locally and on UCloud across audio and visual feature-set experiments.
 
-## Feature-Set Decision
+The preprocessing pipeline should produce:
 
-We decided to work with full feature sets rather than subselecting individual OpenFace/OpenPose dimensions, because the stream files available here do not provide reliable per-dimension feature names.
+```text
+role-level tensors for single-person baselines
+dyadic tensors for interaction-aware models
+raw, PCA, and random-projection transform branches
+shared-transform and role-specific-transform variants
+```
+
+## Feature Sets
+
+We decided to work with full feature sets rather than selecting individual OpenFace/OpenPose dimensions, because the available stream files do not provide reliable per-dimension feature names.
 
 Current feature sets:
 
@@ -20,13 +29,13 @@ visual_openface
 visual_openpose
 ```
 
-The feature-set definitions live in:
+Defined in:
 
 ```text
 src/acm_pipeline/feature_registry.py
 ```
 
-## Alignment Decision
+## Alignment
 
 The common aligned representation is 25 Hz.
 
@@ -35,10 +44,10 @@ Reason:
 ```text
 the engagement target is effectively on a 25 Hz grid
 most available streams are listed as 25 Hz
-the existing eGeMAPS baseline used 25 Hz successfully
+the previous eGeMAPS baseline used 25 Hz successfully
 ```
 
-The alignment logic also handles cases where metadata is suspicious. If the feature frame count already closely matches the target length, the pipeline trusts the frame count rather than blindly resampling by the declared sample rate.
+The alignment logic first checks whether the feature frame count already closely matches the target length. If it does, the pipeline trusts frame count and truncates to the shared length. Otherwise, it uses the declared sample rate and linear interpolation.
 
 Implemented in:
 
@@ -55,7 +64,15 @@ outputs/manifests/model_processed_manifest_<feature_set>_25hz.csv
 outputs/manifests/feature_status_<feature_set>_25hz.csv
 ```
 
-## Normalization Decision
+Role-level tensor contract:
+
+```text
+x             [time, features]
+y             [time]
+target_mask   [time]
+```
+
+## Normalization
 
 All model-input branches use train-fitted z-score normalization.
 
@@ -73,14 +90,12 @@ Meaning of `raw`:
 aligned + normalized, no dimensionality reduction
 ```
 
-It does not mean unnormalized.
-
 Reason:
 
 ```text
 PCA is scale-sensitive
 random projection behaves better with comparable feature scales
-TCN/Transformer optimization is more stable with normalized inputs
+TCN and Transformer optimization are more stable with normalized inputs
 different streams have different numeric ranges and meanings
 ```
 
@@ -89,11 +104,12 @@ Implemented in:
 ```text
 src/acm_pipeline/transforms.py
 scripts/noxi_fit_apply_feature_transform.py
+scripts/noxi_fit_apply_feature_transform_by_role.py
 ```
 
-## Dimensionality-Reduction Branches
+## Transform Branches
 
-The first supported branches are:
+Supported branches:
 
 ```text
 raw
@@ -101,9 +117,9 @@ pca
 random_projection
 ```
 
-PCA was included first because it is common, interpretable, and produces an explained-variance table for choosing component counts.
+PCA was included because it is common, interpretable, and writes an explained-variance table for deciding component counts.
 
-Random projection was included as a simple additional baseline. It is useful as a comparison against PCA because it compresses dimensions without learning variance structure from the data.
+Random projection was included as a simple additional compression baseline. It reduces dimensionality without learning variance structure from the data.
 
 Deferred for later:
 
@@ -113,7 +129,73 @@ autoencoder
 other supervised or nonlinear reducers
 ```
 
-## Smoke Tests Completed
+## Shared vs Role-Specific Transforms
+
+Shared transform script:
+
+```text
+scripts/noxi_fit_apply_feature_transform.py
+```
+
+This fits one normalizer/reducer on all training frames from novice and expert roles together, then applies the same transform to both roles.
+
+Role-specific transform script:
+
+```text
+scripts/noxi_fit_apply_feature_transform_by_role.py
+```
+
+This fits separate transform objects for:
+
+```text
+novice
+expert
+```
+
+Reason for keeping both:
+
+```text
+shared transforms keep novice/expert components on the same axes
+role-specific transforms may preserve role-specific variance patterns better
+the comparison is an empirical modelling question
+```
+
+## Dyadic Tensor Creation
+
+We decided not to replace the role-level preprocessing pipeline. Instead, dyadic tensors are built as an additional branch after role-level transforms.
+
+Script:
+
+```text
+scripts/noxi_build_dyadic_tensors.py
+```
+
+Reason:
+
+```text
+role-level models remain useful baselines
+dyadic models avoid artificial temporal transitions between people
+shared PCA/RP and role-specific PCA/RP can be compared cleanly
+```
+
+Dyadic tensor contract:
+
+```text
+x           [time, 2 * feature_dim]
+y           [time, 2]
+target_mask [time, 2]
+role_order  ["novice", "expert"]
+```
+
+The dyadic builder groups by dataset/session, pairs novice and expert by frame index, concatenates features at each aligned time step, and writes one session tensor per dyad.
+
+Detailed dyadic notes:
+
+```text
+docs/05_dyadic_representation.md
+```
+
+## Smoke Checks Completed
 
 The clean pipeline was smoke-tested using the existing eGeMAPS cache from the exploratory directory.
 
@@ -131,126 +213,87 @@ outputs/manifests/model_processed_manifest_audio_egemaps_25hz.csv
 outputs/manifests/feature_status_audio_egemaps_25hz.csv
 ```
 
-Raw transform command:
+Shared raw transform:
 
 ```powershell
 python scripts\noxi_fit_apply_feature_transform.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_25hz.csv --method raw
 ```
 
-PCA smoke command:
+Shared PCA smoke:
 
 ```powershell
 python scripts\noxi_fit_apply_feature_transform.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_25hz.csv --method pca --n-components 8 --max-fit-frames 2000
 ```
 
-Random projection smoke command:
+Shared random projection smoke:
 
 ```powershell
 python scripts\noxi_fit_apply_feature_transform.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_25hz.csv --method random_projection --n-components 8 --max-fit-frames 2000
 ```
 
-The PCA smoke run produced:
+The shared PCA smoke run produced:
 
 ```text
 outputs/transforms/audio_egemaps_pca8/pca_explained_variance.csv
 ```
 
-The first 8 PCA components explained approximately 74.2% cumulative variance in the small smoke sample. This number is only a smoke-test diagnostic, not a final modelling decision.
+The first 8 PCA components explained approximately 74.2% cumulative variance in the small smoke sample. This is only a smoke-test diagnostic, not a final modelling decision.
 
-## UCloud Plan
+Dyadic smoke checks:
+
+```powershell
+python scripts\noxi_build_dyadic_tensors.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw.csv
+
+python scripts\noxi_fit_apply_feature_transform_by_role.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_25hz.csv --method pca --n-components 8 --max-fit-frames 2000
+
+python scripts\noxi_build_dyadic_tensors.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_pca8_by_role.csv
+```
+
+Observed dyadic outputs:
+
+```text
+audio_egemaps_raw_dyadic:
+  output manifest: outputs/manifests/model_processed_manifest_audio_egemaps_raw_dyadic.csv
+  dyadic rows: 69
+
+audio_egemaps_pca8_by_role:
+  output manifest: outputs/manifests/model_processed_manifest_audio_egemaps_pca8_by_role.csv
+  transformed rows: 138
+
+audio_egemaps_pca8_by_role_dyadic:
+  output manifest: outputs/manifests/model_processed_manifest_audio_egemaps_pca8_by_role_dyadic.csv
+  dyadic rows: 69
+```
+
+One inspected role-specific PCA dyadic tensor had:
+
+```text
+x:           (26642, 16)
+y:           (26642, 2)
+target_mask: (26642, 2)
+role_order:  ["novice", "expert"]
+```
+
+## UCloud Preprocessing Plan
 
 Once persistent UCloud storage is available:
 
 1. Clone the GitHub repo.
 2. Install requirements.
-3. Populate `cache/` with the required `.stream` and `.stream~` files.
+3. Populate `cache/` from persistent storage with the required `.stream` and `.stream~` files.
 4. Run `noxi_prepare_feature_tensors_25hz.py` for each feature set.
-5. Run `noxi_fit_apply_feature_transform.py` for raw, PCA, and random projection branches.
-6. Sync `outputs/` and selected `processed/` artifacts back to persistent storage.
+5. Run shared transform branches with `noxi_fit_apply_feature_transform.py`.
+6. Run role-specific transform branches with `noxi_fit_apply_feature_transform_by_role.py`.
+7. Build dyadic manifests with `noxi_build_dyadic_tensors.py`.
+8. Sync `outputs/`, selected `processed/`, and selected `models/` artifacts back to persistent storage.
 
-Future documents will track:
+## Modelling Documents
 
-```text
-analysis steps
-training runs
-validation results
-interpretation
-```
-
-## Baseline Modelling Step Added
-
-The first baseline model scripts have been added. They are designed to consume any transformed manifest:
+Preprocessing stops at model-ready manifests and tensors. Modelling setup and experiment tracking are documented separately:
 
 ```text
-raw
-pca
-random_projection
-```
-
-This works because all transform branches write the same tensor contract:
-
-```text
-x             [time, features]
-y             [time]
-target_mask   [time]
-```
-
-### TCN Baseline
-
-Script:
-
-```text
-scripts/train_tcn.py
-```
-
-Design:
-
-```text
-create sequence windows lazily during training
-predict engagement for every frame in each window
-average overlapping validation predictions back to full sessions
-report CCC/MAE/RMSE/Pearson overall and by dataset/role/session
-```
-
-Reason for lazy windows:
-
-```text
-avoids duplicating overlapping windows on disk
-allows different models to choose different window sizes
-keeps UCloud storage lower
-```
-
-### XGBoost Baseline
-
-Script:
-
-```text
-scripts/train_xgboost.py
-```
-
-Design:
-
-```text
-create 20s/5s windows
-summarize each window into mean/std feature descriptors
-optionally add min/max descriptors
-predict one scalar mean engagement value per window
-average overlapping window predictions back to full-session frame predictions
-```
-
-Reason:
-
-```text
-XGBoost is a strong tabular baseline
-it provides a useful comparison against sequence models
-it can train on raw, PCA, or random-projection feature branches
-```
-
-### Example Commands
-
-```powershell
-python scripts\train_tcn.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw.csv --run-name egemaps_raw_tcn
-python scripts\train_tcn.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_pca8.csv --run-name egemaps_pca8_tcn
-python scripts\train_xgboost.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw.csv --run-name egemaps_raw_xgb
-python scripts\train_xgboost.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_rp8.csv --run-name egemaps_rp8_xgb
+docs/03_tcn_architecture.md
+docs/04_transformer_architecture.md
+docs/05_dyadic_representation.md
+docs/tcn_modelling.md
 ```

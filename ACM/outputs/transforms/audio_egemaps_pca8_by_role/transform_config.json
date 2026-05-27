@@ -1,0 +1,15 @@
+{
+  "input_manifest": "outputs\\manifests\\model_processed_manifest_audio_egemaps_25hz.csv",
+  "output_manifest": "C:\\Users\\anec\\projects\\mltac\\ACM\\outputs\\manifests\\model_processed_manifest_audio_egemaps_pca8_by_role.csv",
+  "feature_set": "audio_egemaps",
+  "method": "pca",
+  "transform_scope": "role_specific",
+  "n_components": 8,
+  "train_split": "train_internal",
+  "max_fit_frames": 2000,
+  "seed": 13,
+  "roles": [
+    "novice",
+    "expert"
+  ]
+}

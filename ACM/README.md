@@ -2,7 +2,7 @@
 
 Clean preprocessing and modelling code for NOXI / NOXI-J continuous engagement regression.
 
-The repository is intended to contain code, configs, and lightweight documentation only. Keep cached streams, processed tensors, transforms, checkpoints, and prediction files out of git.
+The repository is intended to contain code, configs, documentation, and the currently generated pipeline artifacts so runs can be inspected and moved to UCloud. Very large raw caches should still live in persistent storage rather than git.
 
 ## Feature Sets
 
@@ -33,9 +33,16 @@ python scripts\noxi_fit_apply_feature_transform.py --input-manifest outputs\mani
 python scripts\noxi_fit_apply_feature_transform.py --input-manifest outputs\manifests\model_processed_manifest_audio_w2vbert2_25hz.csv --method pca --n-components 128
 ```
 
+Role-specific transform and dyadic fusion examples:
+
+```powershell
+python scripts\noxi_fit_apply_feature_transform_by_role.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_25hz.csv --method pca --n-components 8
+python scripts\noxi_build_dyadic_tensors.py --input-manifest outputs\manifests\model_processed_manifest_audio_egemaps_pca8_by_role.csv
+```
+
 ## Baseline Models
 
-Both baseline trainers consume the same transformed manifest contract:
+The role-level baseline trainers consume the same transformed manifest contract:
 
 ```text
 tensor_relative_path -> NPZ with x, y, target_mask
@@ -50,6 +57,15 @@ python scripts\train_tcn.py --manifest outputs\manifests\model_processed_manifes
 python scripts\train_xgboost.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_pca8.csv --run-name egemaps_pca8_xgb
 ```
 
+Dyadic trainer variants consume dyadic manifests where the two people are aligned at each time step and `y` has novice/expert channels:
+
+```powershell
+python scripts\train_tcn_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --head-type shared --run-name egemaps_raw_dyadic_tcn_shared
+python scripts\train_tcn_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --head-type role_specific --run-name egemaps_raw_dyadic_tcn_role_heads
+python scripts\train_transformer_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --run-name egemaps_raw_dyadic_transformer
+python scripts\train_xgboost_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --run-name egemaps_raw_dyadic_xgb
+```
+
 ## Living Documentation
 
 The project documentation is intended to grow with the pipeline:
@@ -57,6 +73,10 @@ The project documentation is intended to grow with the pipeline:
 ```text
 docs/01_codebase_structure.md
 docs/02_preprocessing_progress.md
+docs/03_tcn_architecture.md
+docs/04_transformer_architecture.md
+docs/05_dyadic_representation.md
+docs/tcn_modelling.md
 ```
 
 Later UCloud training runs should add separate notes for analysis steps, results, and interpretation.

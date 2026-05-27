@@ -13,14 +13,15 @@ ACM/
   docs/
 ```
 
-Generated folders are ignored by git:
+Generated folders are currently visible to git for this project hand-off:
 
 ```text
-cache/
 processed/
 outputs/
 models/
 ```
+
+Raw external cache folders should still be treated carefully because full feature caches can become too large for normal GitHub pushes.
 
 ## Source Package
 
@@ -105,6 +106,26 @@ y             [time]
 target_mask   [time]
 ```
 
+### `src/acm_pipeline/dyadic_data.py`
+
+Shared dyadic model-input utilities:
+
+```text
+dyadic manifest loading
+dyadic NPZ tensor validation
+lazy dyadic sequence-window indexing
+dyadic XGBoost window-summary table construction
+```
+
+The dyadic tensor contract is:
+
+```text
+x             [time, 2 * features]
+y             [time, 2]
+target_mask   [time, 2]
+role_order    ["novice", "expert"]
+```
+
 ### `src/acm_pipeline/metrics.py`
 
 Shared regression metrics and losses:
@@ -128,8 +149,21 @@ Input/output:
 
 ```text
 input:  [batch, features, time]
-output: [batch, time]
+output: [batch, time] or [batch, time, output_dim]
 ```
+
+### `src/acm_pipeline/models_transformer.py`
+
+Defines a small encoder-only Transformer for frame-level sequence regression.
+
+Input/output:
+
+```text
+input:  [batch, features, time]
+output: [batch, time] or [batch, time, output_dim]
+```
+
+The model projects input features to `d_model`, adds positional encoding, applies Transformer encoder layers, and predicts one engagement value per frame.
 
 ### `src/acm_pipeline/train_utils.py`
 
@@ -138,6 +172,16 @@ Shared training/evaluation output helpers:
 ```text
 grouped metrics by overall/dataset/role/session
 frame-level validation prediction export
+CSV writing
+```
+
+### `src/acm_pipeline/dyadic_train_utils.py`
+
+Shared dyadic training/evaluation output helpers:
+
+```text
+metrics by overall/role-channel/dataset/session
+long-format dyadic validation prediction export
 CSV writing
 ```
 
@@ -211,9 +255,62 @@ Additional random projection output:
 outputs/transforms/<feature_set>_rp<n>/random_projection.pkl
 ```
 
+### `scripts/noxi_fit_apply_feature_transform_by_role.py`
+
+Purpose: fit role-specific normalization and optional dimensionality reduction.
+
+This script is parallel to `noxi_fit_apply_feature_transform.py`, but it fits separate transform objects for:
+
+```text
+novice
+expert
+```
+
+This supports dyadic experiments where novice and expert features are compressed separately before being concatenated at each time step.
+
+Primary outputs:
+
+```text
+processed/transformed/<feature_set>_<method>_by_role/
+outputs/manifests/model_processed_manifest_<feature_set>_<method>_by_role.csv
+outputs/transforms/<feature_set>_<method>_by_role/novice/
+outputs/transforms/<feature_set>_<method>_by_role/expert/
+```
+
+### `scripts/noxi_build_dyadic_tensors.py`
+
+Purpose: fuse role-level transformed tensors into time-aligned dyadic session tensors.
+
+Input:
+
+```text
+any role-level transformed manifest
+```
+
+Output tensor contract:
+
+```text
+x           [time, 2 * feature_dim]
+y           [time, 2]
+target_mask [time, 2]
+role_order  ["novice", "expert"]
+```
+
+Further details live in:
+
+```text
+docs/05_dyadic_representation.md
+```
+
 ### `scripts/train_tcn.py`
 
 Purpose: train a frame-level TCN from any transformed manifest.
+
+Architecture notes and experiment tracking live in:
+
+```text
+docs/03_tcn_architecture.md
+```
 
 Windowing is done lazily inside the data loader:
 
@@ -234,6 +331,29 @@ outputs/experiments/<run_name>/training_log.csv
 outputs/experiments/<run_name>/val_predictions.csv
 outputs/experiments/<run_name>/metrics_*.csv
 ```
+
+### `scripts/train_tcn_dyadic.py`
+
+Purpose: train a frame-level TCN from any dyadic manifest.
+
+Input/output:
+
+```text
+input x:  [batch, 2 * features, time]
+output:   [batch, time, 2]
+targets:  [batch, time, 2]
+```
+
+The two output channels are novice and expert engagement. Validation windows are averaged back to full dyadic sessions and metrics are reported overall, by role channel, by dataset, and by session.
+
+Head variants:
+
+```text
+--head-type shared         # one 2-channel prediction head
+--head-type role_specific  # one 1-channel prediction head per role
+```
+
+Both variants use the same dyadic TCN encoder, so this is a focused test of the output mapping.
 
 ### `scripts/train_xgboost.py`
 
@@ -258,6 +378,46 @@ outputs/experiments/<run_name>/val_predictions.csv
 outputs/experiments/<run_name>/metrics_*.csv
 ```
 
+### `scripts/train_xgboost_dyadic.py`
+
+Purpose: train a tabular XGBoost baseline from any dyadic manifest.
+
+Each dyadic window is summarized into fixed descriptors, and the model predicts two scalar window targets:
+
+```text
+[novice_mean_engagement, expert_mean_engagement]
+```
+
+The predictions are expanded back over covered frames and averaged across overlapping windows.
+
+### `scripts/train_transformer.py`
+
+Purpose: train an encoder-only Transformer from any transformed manifest.
+
+Architecture notes and experiment tracking live in:
+
+```text
+docs/04_transformer_architecture.md
+```
+
+Like the TCN, the Transformer uses lazy sequence windows and reconstructs validation predictions by averaging overlapping window outputs back onto full sessions.
+
+Primary outputs:
+
+```text
+outputs/experiments/<run_name>/model_best.pt
+outputs/experiments/<run_name>/config.json
+outputs/experiments/<run_name>/training_log.csv
+outputs/experiments/<run_name>/val_predictions.csv
+outputs/experiments/<run_name>/metrics_*.csv
+```
+
+### `scripts/train_transformer_dyadic.py`
+
+Purpose: train an encoder-only Transformer from any dyadic manifest.
+
+It follows the same windowing, masking, reconstruction, and metric layout as `train_tcn_dyadic.py`, but uses the Transformer encoder model.
+
 ## Current Modelling Code
 
-The first TCN baseline was developed in the exploratory `Noxi_Noxij` directory. The clean ACM repo currently focuses on preprocessing and transform branches. The next step is to port the modelling modules into this repo once the preprocessing interface is stable.
+The ACM repo now contains both role-level and dyadic baseline trainers for TCN, Transformer, and XGBoost. The role-level scripts remain useful baselines; the dyadic scripts should be used when modelling both people as a time-aligned interaction sequence.
