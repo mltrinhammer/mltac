@@ -1,0 +1,12 @@
+{
+  "input_manifest": "outputs\\manifests\\model_processed_manifest_audio_egemaps_25hz.csv",
+  "output_manifest": "C:\\Users\\anec\\projects\\mltac\\ACM\\outputs\\manifests\\model_processed_manifest_audio_egemaps_rp8.csv",
+  "feature_set": "audio_egemaps",
+  "method": "random_projection",
+  "n_components": 8,
+  "train_split": "train_internal",
+  "max_fit_frames": 2000,
+  "seed": 13,
+  "normalizer_path": "C:\\Users\\anec\\projects\\mltac\\ACM\\outputs\\transforms\\audio_egemaps_rp8\\normalizer.npz",
+  "reducer_path": "C:\\Users\\anec\\projects\\mltac\\ACM\\outputs\\transforms\\audio_egemaps_rp8\\random_projection.pkl"
+}
