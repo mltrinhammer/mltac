@@ -237,6 +237,18 @@ python scripts\train_tcn_dyadic.py `
   --head-type role_specific `
   --run-name egemaps_raw_dyadic_tcn_role_heads
 
+python scripts\train_tcn_partner_lag.py `
+  --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
+  --partner-lags -25 0 25 `
+  --run-name egemaps_raw_partner_lag_tcn
+
+python scripts\train_tcn_attention.py `
+  --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
+  --attention-context joint `
+  --attention-past-frames 1500 `
+  --save-attention `
+  --run-name egemaps_raw_joint_attention_tcn
+
 python scripts\train_transformer_dyadic.py `
   --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
   --run-name egemaps_raw_dyadic_transformer
@@ -264,6 +276,8 @@ Model comparisons:
 ```text
 dyadic TCN with shared 2-channel head
 dyadic TCN with one head per role
+dyadic partner-lag TCN with separate role encoders and separate role heads
+dyadic attention TCN with self/partner/joint context
 dyadic Transformer
 dyadic XGBoost
 partner-aware attention / cross-attention later
@@ -280,6 +294,8 @@ role-specific-transform dyadic fusion
 shape/assertion checks in dyadic builder
 dyadic TCN trainer
 shared and role-specific dyadic TCN heads
+partner-lag dyadic TCN with separate role encoders and heads
+attention dyadic TCN with optional attention diagnostics
 dyadic Transformer trainer
 dyadic XGBoost trainer
 dyadic metrics split by novice/expert channel
@@ -298,6 +314,8 @@ Tiny dyadic model smoke tests on `audio_egemaps_raw_dyadic`:
 ```text
 TCN shared head:         val_ccc=0.12774
 TCN role-specific heads: val_ccc=0.01804
+TCN partner lag:         val_ccc=0.08297
+TCN joint attention:     val_ccc=-0.07045
 Transformer:             val_ccc=-0.02809
 XGBoost:                 val_ccc=0.30641
 ```

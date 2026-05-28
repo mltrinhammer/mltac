@@ -62,6 +62,8 @@ Dyadic trainer variants consume dyadic manifests where the two people are aligne
 ```powershell
 python scripts\train_tcn_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --head-type shared --run-name egemaps_raw_dyadic_tcn_shared
 python scripts\train_tcn_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --head-type role_specific --run-name egemaps_raw_dyadic_tcn_role_heads
+python scripts\train_tcn_partner_lag.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --partner-lags -25 0 25 --run-name egemaps_raw_partner_lag_tcn
+python scripts\train_tcn_attention.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --attention-context joint --attention-past-frames 1500 --save-attention --run-name egemaps_raw_joint_attention_tcn
 python scripts\train_transformer_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --run-name egemaps_raw_dyadic_transformer
 python scripts\train_xgboost_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --run-name egemaps_raw_dyadic_xgb
 ```

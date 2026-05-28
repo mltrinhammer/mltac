@@ -355,6 +355,60 @@ Head variants:
 
 Both variants use the same dyadic TCN encoder, so this is a focused test of the output mapping.
 
+### `scripts/train_tcn_partner_lag.py`
+
+Purpose: train a partner-aware TCN from any dyadic manifest.
+
+This experiment uses two separate temporal encoders:
+
+```text
+novice features -> novice TCN encoder -> novice hidden sequence
+expert features -> expert TCN encoder -> expert hidden sequence
+```
+
+Each role has a separate head. The novice head receives novice hidden states plus lagged expert hidden states; the expert head receives expert hidden states plus lagged novice hidden states.
+
+Lag convention:
+
+```text
+--partner-lags -25 0 25
+-25 = partner hidden state from 25 frames in the past
+0   = partner hidden state at the same frame
+25  = partner hidden state from 25 frames in the future
+```
+
+At 25 Hz, 25 frames is one second. Positive lags are offline-only because they use future partner context.
+
+### `scripts/train_tcn_attention.py`
+
+Purpose: train role-specific TCN encoders with role-specific attention heads.
+
+Supported attention contexts:
+
+```text
+self     # target role attends to its own hidden history
+partner  # target role attends to partner hidden history
+joint    # target role attends to own + partner hidden history
+```
+
+Important options:
+
+```text
+--attention-past-frames 1500   # one minute at 25 Hz
+--exclude-current-frame        # remove source time t when possible
+--save-attention               # export diagnostics from the best checkpoint
+```
+
+Attention diagnostic outputs:
+
+```text
+attention_by_lag.csv
+attention_by_lag_bin.csv
+attention_by_source.csv
+attention_by_session_phase.csv
+attention_topk.csv
+```
+
 ### `scripts/train_xgboost.py`
 
 Purpose: train a tabular XGBoost baseline from any transformed manifest.

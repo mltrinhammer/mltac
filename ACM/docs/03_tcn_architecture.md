@@ -376,6 +376,117 @@ role-specific heads test whether novice and expert need separate output mappings
 the encoder stays identical, so the comparison isolates the final prediction layer
 ```
 
+### Partner-Lag Heads
+
+CLI argument for partner-lag TCN:
+
+```powershell
+--partner-lags -25 0 25
+```
+
+Model structure:
+
+```text
+novice features -> novice TCN encoder -> novice hidden sequence
+expert features -> expert TCN encoder -> expert hidden sequence
+```
+
+Novice prediction head:
+
+```text
+novice_hidden_t
+expert_hidden_t+lag1
+expert_hidden_t+lag2
+...
+-> novice engagement_t
+```
+
+Expert prediction head:
+
+```text
+expert_hidden_t
+novice_hidden_t+lag1
+novice_hidden_t+lag2
+...
+-> expert engagement_t
+```
+
+Lag convention:
+
+```text
+negative lag = partner past
+zero lag     = partner same frame
+positive lag = partner future
+```
+
+At 25 Hz:
+
+```text
+-25 = partner one second earlier
+0   = partner same frame
+25  = partner one second later
+```
+
+Effect:
+
+```text
+separate encoders allow novice and expert to learn different temporal representations
+separate heads allow novice and expert engagement mappings to differ
+partner lags test whether one person's recent or future behaviour helps predict the other person's engagement
+positive lags should be used only for offline experiments
+```
+
+### Attention Heads
+
+CLI arguments for attention TCN:
+
+```powershell
+--attention-context self
+--attention-context partner
+--attention-context joint
+--attention-past-frames 1500
+--exclude-current-frame
+```
+
+Model structure:
+
+```text
+novice features -> novice TCN encoder -> novice hidden sequence
+expert features -> expert TCN encoder -> expert hidden sequence
+```
+
+Attention contexts:
+
+```text
+self:    target role attends to its own hidden history
+partner: target role attends to partner hidden history
+joint:   target role attends to own + partner hidden history
+```
+
+At 25 Hz:
+
+```text
+750 frames  = 30 seconds
+1500 frames = 60 seconds
+```
+
+Effect:
+
+```text
+self attention tests whether flexible weighting over the role's own recent hidden states helps
+partner attention tests whether partner history alone adds useful interaction information
+joint attention tests whether own and partner history are useful together
+past-window restriction makes the attention easier to interpret and closer to causal modelling
+```
+
+Diagnostics:
+
+```text
+--save-attention writes attention_by_lag/source/session_phase and sampled top-k attention rows
+relative_lag_frames < 0 means the attended source is before the prediction time
+diagnostics are exported once from the best checkpoint because full attention matrices are large
+```
+
 ## Receptive Field Intuition
 
 The receptive field is the approximate temporal span that can influence one output frame.
@@ -431,6 +542,8 @@ Add one row per run.
 | 2026-05-27 | `smoke_tcn_raw` | `model_processed_manifest_audio_egemaps_raw.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.01543 | Smoke test only: 1 epoch, 16 train windows. Not a real result. |
 | 2026-05-27 | `smoke_tcn_dyadic_shared_head` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.12774 | Smoke test only: shared 2-channel dyadic head, 1 epoch, 8 train windows. |
 | 2026-05-27 | `smoke_tcn_dyadic_role_heads` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.01804 | Smoke test only: one dyadic head per role, 1 epoch, 8 train windows. |
+| 2026-05-28 | `smoke_tcn_partner_lag_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.08297 | Smoke test only: separate role TCNs, separate heads, partner lags -25/0/25, 1 epoch, 8 train windows. |
+| 2026-05-28 | `smoke_tcn_attention_joint_diag_fast` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 125 | 5000 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | -0.07045 | Smoke test only: joint attention, 50-frame past window, attention diagnostics enabled. |
 
 ## Planned Comparisons
 
@@ -452,6 +565,8 @@ Dyadic note:
 train_tcn.py is role-level and predicts y [time].
 train_tcn_dyadic.py predicts y [time, 2] from dyadic tensors.
 Use --head-type shared or --head-type role_specific to compare dyadic output heads.
+train_tcn_partner_lag.py also predicts y [time, 2], but uses separate role encoders and passes lagged partner hidden states into separate role heads.
+train_tcn_attention.py predicts y [time, 2] with separate role encoders and self/partner/joint attention heads over a past context window.
 ```
 
 Architecture ablations to consider:
