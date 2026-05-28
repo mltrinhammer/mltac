@@ -64,6 +64,7 @@ python scripts\train_tcn_dyadic.py --manifest outputs\manifests\model_processed_
 python scripts\train_tcn_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --head-type role_specific --run-name egemaps_raw_dyadic_tcn_role_heads
 python scripts\train_tcn_partner_lag.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --partner-lags -25 0 25 --run-name egemaps_raw_partner_lag_tcn
 python scripts\train_tcn_attention.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --attention-context joint --attention-past-frames 1500 --save-attention --run-name egemaps_raw_joint_attention_tcn
+python scripts\train_tcn_gated_pool.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --partner-pool-frames 750 --save-gates --run-name egemaps_raw_gated_pool_30s_tcn
 python scripts\train_transformer_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --run-name egemaps_raw_dyadic_transformer
 python scripts\train_xgboost_dyadic.py --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv --run-name egemaps_raw_dyadic_xgb
 ```
@@ -79,6 +80,7 @@ docs/03_tcn_architecture.md
 docs/04_transformer_architecture.md
 docs/05_dyadic_representation.md
 docs/tcn_modelling.md
+docs/tcn_evaluation_template.md
 ```
 
 Later UCloud training runs should add separate notes for analysis steps, results, and interpretation.

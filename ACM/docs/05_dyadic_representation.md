@@ -249,6 +249,12 @@ python scripts\train_tcn_attention.py `
   --save-attention `
   --run-name egemaps_raw_joint_attention_tcn
 
+python scripts\train_tcn_gated_pool.py `
+  --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
+  --partner-pool-frames 750 `
+  --save-gates `
+  --run-name egemaps_raw_gated_pool_30s_tcn
+
 python scripts\train_transformer_dyadic.py `
   --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
   --run-name egemaps_raw_dyadic_transformer
@@ -278,6 +284,7 @@ dyadic TCN with shared 2-channel head
 dyadic TCN with one head per role
 dyadic partner-lag TCN with separate role encoders and separate role heads
 dyadic attention TCN with self/partner/joint context
+dyadic gated pooled-context TCN
 dyadic Transformer
 dyadic XGBoost
 partner-aware attention / cross-attention later
@@ -296,6 +303,7 @@ dyadic TCN trainer
 shared and role-specific dyadic TCN heads
 partner-lag dyadic TCN with separate role encoders and heads
 attention dyadic TCN with optional attention diagnostics
+gated pooled-context dyadic TCN with optional gate diagnostics
 dyadic Transformer trainer
 dyadic XGBoost trainer
 dyadic metrics split by novice/expert channel
@@ -316,6 +324,7 @@ TCN shared head:         val_ccc=0.12774
 TCN role-specific heads: val_ccc=0.01804
 TCN partner lag:         val_ccc=0.08297
 TCN joint attention:     val_ccc=-0.07045
+TCN gated pool:          val_ccc=0.09410
 Transformer:             val_ccc=-0.02809
 XGBoost:                 val_ccc=0.30641
 ```

@@ -13,6 +13,7 @@ does dyadic time alignment improve over role-level modelling?
 does a shared dyadic output head work as well as role-specific heads?
 do separate role encoders with lagged partner context improve interaction modelling?
 does attention over self, partner, or joint history improve the role-specific TCN?
+does a learned gate over pooled past partner context improve interaction modelling?
 how do raw, PCA, and random-projection inputs compare?
 how do shared versus role-specific dimensionality reduction branches compare?
 ```
@@ -110,6 +111,12 @@ Attention TCN:
 scripts/train_tcn_attention.py
 ```
 
+Gated pooled-context TCN:
+
+```text
+scripts/train_tcn_gated_pool.py
+```
+
 The dyadic script supports two output-head variants:
 
 ```text
@@ -189,6 +196,30 @@ attention_topk.csv
 
 The primary timing diagnostic is `relative_lag_frames`. Negative values mean the model attended to a source frame before the prediction time.
 
+The gated pooled-context script uses pooled partner history instead of fixed lags or attention:
+
+```text
+partner_context_t = mean(partner_hidden from t-N ... t-1)
+gate_t = sigmoid([target_hidden_t, partner_context_t])
+fused_t = target_hidden_t + gate_t * partner_context_t
+```
+
+Recommended first windows:
+
+```text
+--partner-pool-frames 750   # 30 seconds
+--partner-pool-frames 1500  # 60 seconds
+```
+
+By default, same-time partner information is excluded. If `--save-gates` is used, the best checkpoint writes:
+
+```text
+gate_by_role.csv
+gate_by_session.csv
+gate_by_session_phase.csv
+gate_timeseries_sample.csv
+```
+
 ## First Planned Comparison
 
 The immediate comparison is:
@@ -198,6 +229,7 @@ dyadic TCN, raw eGeMAPS, shared head
 dyadic TCN, raw eGeMAPS, role-specific heads
 partner-lag TCN, raw eGeMAPS, separate role encoders and separate role heads
 attention TCN, raw eGeMAPS, self/partner/joint context variants
+gated pooled-context TCN, raw eGeMAPS, 30s and 60s partner history windows
 ```
 
 Reason:
@@ -206,9 +238,10 @@ Reason:
 the first two runs use the same dyadic input and encoder settings, changing only the output head
 the partner-lag run uses the same dyadic input but tests explicit role-specific encoders and partner timing
 the attention runs test whether learned weighting over recent self/partner hidden states helps beyond fixed lag choices
+the gated pooled runs test whether a summarized partner-history window helps, and when the model chooses to use it
 ```
 
-Together, these runs separate three questions: whether novice/expert need separate output mappings, whether fixed lagged partner context helps, and whether learned attention over recent history helps.
+Together, these runs separate four questions: whether novice/expert need separate output mappings, whether fixed lagged partner context helps, whether learned attention over recent history helps, and whether a gated summary of partner history helps.
 
 ## Example Commands
 
@@ -250,6 +283,26 @@ python scripts\train_tcn_attention.py `
   --run-name egemaps_raw_joint_attention_tcn
 ```
 
+Gated pooled partner context over the previous 30 seconds:
+
+```powershell
+python scripts\train_tcn_gated_pool.py `
+  --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
+  --partner-pool-frames 750 `
+  --save-gates `
+  --run-name egemaps_raw_gated_pool_30s_tcn
+```
+
+Gated pooled partner context over the previous 60 seconds:
+
+```powershell
+python scripts\train_tcn_gated_pool.py `
+  --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw_dyadic.csv `
+  --partner-pool-frames 1500 `
+  --save-gates `
+  --run-name egemaps_raw_gated_pool_60s_tcn
+```
+
 For full UCloud runs, use the same commands without smoke-test limits. For local wiring checks, add small limits such as:
 
 ```powershell
@@ -266,13 +319,18 @@ These runs only check that the code paths work. They should not be interpreted a
 | 2026-05-27 | `smoke_tcn_dyadic_role_heads` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | `role_specific` | 500 | 125 | 8 | 1 | 1 | 8 | 0.01804 | Wiring check only. |
 | 2026-05-28 | `smoke_tcn_partner_lag_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | `separate_role_encoders_heads_lags_-25_0_25` | 500 | 125 | 8 | 1 | 1 | 8 | 0.08297 | Wiring check only. |
 | 2026-05-28 | `smoke_tcn_attention_joint_diag_fast` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | `joint_attention_past_50` | 125 | 5000 | 8 | 1 | 1 | 4 | -0.07045 | Wiring check only; diagnostics enabled. |
+| 2026-05-28 | `smoke_tcn_gated_pool_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | `gated_pool_75` | 500 | 125 | 8 | 1 | 1 | 8 | 0.09410 | Wiring check only; scalar gate diagnostics enabled. |
 
 ## Experiment Log Template
 
-Add full training runs here.
+Add full training runs here. For short interpretation-oriented summaries, also update:
 
-| Date | Run Name | Manifest | Representation | Transform | Encoder Setup | Head Setup | Partner Lags | Attention Context | Attention Window | Window | Stride | Channels | Levels | Kernel | Dropout | CCC Weight | Val CCC | Novice CCC | Expert CCC | Notes |
-|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+```text
+docs/tcn_evaluation_template.md
+```
+
+| Date | Run Name | Manifest | Representation | Transform | Encoder Setup | Head Setup | Partner Lags | Partner Pool | Attention Context | Attention Window | Window | Stride | Channels | Levels | Kernel | Dropout | CCC Weight | Val CCC | Novice CCC | Expert CCC | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
 
 ## Next Experiments
 
@@ -282,9 +340,10 @@ Suggested order:
 2. Run full dyadic raw eGeMAPS TCN with role-specific heads.
 3. Run full partner-lag raw eGeMAPS TCN with lags `-25 0 25`.
 4. Run attention TCN variants on raw eGeMAPS: `self`, `partner`, and `joint`.
-5. Compare overall CCC, role-channel CCC, and attention diagnostics.
-6. Repeat the strongest setup on shared PCA and role-specific PCA branches.
-7. Add random projection only after PCA/raw behavior is understood.
+5. Run gated pooled TCN variants on raw eGeMAPS with 30s and 60s partner windows.
+6. Compare overall CCC, role-channel CCC, attention diagnostics, and gate diagnostics.
+7. Repeat the strongest setup on shared PCA and role-specific PCA branches.
+8. Add random projection only after PCA/raw behavior is understood.
 
 Keep the first full runs conservative:
 

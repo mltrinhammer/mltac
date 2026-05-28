@@ -409,6 +409,41 @@ attention_by_session_phase.csv
 attention_topk.csv
 ```
 
+### `scripts/train_tcn_gated_pool.py`
+
+Purpose: train role-specific TCN encoders with learned gates over pooled past partner context.
+
+Model idea:
+
+```text
+target hidden sequence
+partner hidden sequence pooled over previous N frames
+-> learned gate in [0, 1]
+-> fused target/partner representation
+-> role-specific engagement head
+```
+
+Important options:
+
+```text
+--partner-pool-frames 750   # 30 seconds at 25 Hz
+--partner-pool-frames 1500  # 60 seconds at 25 Hz
+--gate-type scalar          # one interpretable gate per role/time
+--gate-type channel         # one gate per hidden channel
+--save-gates                # export gate diagnostics from the best checkpoint
+```
+
+By default, partner frame `t` is excluded from the pooled context, so the model uses only past partner information. Use `--include-current-frame` only for explicitly non-causal/offline ablations.
+
+Gate diagnostic outputs:
+
+```text
+gate_by_role.csv
+gate_by_session.csv
+gate_by_session_phase.csv
+gate_timeseries_sample.csv
+```
+
 ### `scripts/train_xgboost.py`
 
 Purpose: train a tabular XGBoost baseline from any transformed manifest.

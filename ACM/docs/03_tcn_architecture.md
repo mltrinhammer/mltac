@@ -487,6 +487,61 @@ relative_lag_frames < 0 means the attended source is before the prediction time
 diagnostics are exported once from the best checkpoint because full attention matrices are large
 ```
 
+### Gated Pooled Partner Context
+
+CLI arguments for gated pooled TCN:
+
+```powershell
+--partner-pool-frames 750
+--partner-pool-frames 1500
+--gate-type scalar
+--gate-type channel
+--save-gates
+```
+
+Model structure:
+
+```text
+novice features -> novice TCN encoder -> novice hidden sequence
+expert features -> expert TCN encoder -> expert hidden sequence
+```
+
+For novice prediction:
+
+```text
+expert_context_t = mean(expert_hidden from t-N ... t-1)
+gate_t = sigmoid([novice_hidden_t, expert_context_t])
+fused_t = novice_hidden_t + gate_t * expert_context_t
+novice head -> novice engagement_t
+```
+
+The expert side mirrors this with beginner/novice context.
+
+At 25 Hz:
+
+```text
+750 frames  = 30 seconds
+1500 frames = 60 seconds
+```
+
+Effect:
+
+```text
+pooled context tests whether the partner's recent behaviour window helps
+the gate learns when partner context should matter more or less
+scalar gates are easiest to interpret
+channel gates are more flexible but less directly readable
+partner frame t is excluded by default for clearer interaction timing
+```
+
+Diagnostics:
+
+```text
+--save-gates writes gate_by_role/session/session_phase and sampled gate time series
+mean_gate near 0 means the head mostly uses target-role hidden state
+mean_gate near 1 means the head strongly uses pooled partner context
+```
+
 ## Receptive Field Intuition
 
 The receptive field is the approximate temporal span that can influence one output frame.
@@ -544,6 +599,7 @@ Add one row per run.
 | 2026-05-27 | `smoke_tcn_dyadic_role_heads` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.01804 | Smoke test only: one dyadic head per role, 1 epoch, 8 train windows. |
 | 2026-05-28 | `smoke_tcn_partner_lag_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.08297 | Smoke test only: separate role TCNs, separate heads, partner lags -25/0/25, 1 epoch, 8 train windows. |
 | 2026-05-28 | `smoke_tcn_attention_joint_diag_fast` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 125 | 5000 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | -0.07045 | Smoke test only: joint attention, 50-frame past window, attention diagnostics enabled. |
+| 2026-05-28 | `smoke_tcn_gated_pool_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.09410 | Smoke test only: scalar gates, pooled partner past 75 frames, 1 epoch, 8 train windows. |
 
 ## Planned Comparisons
 
@@ -567,6 +623,7 @@ train_tcn_dyadic.py predicts y [time, 2] from dyadic tensors.
 Use --head-type shared or --head-type role_specific to compare dyadic output heads.
 train_tcn_partner_lag.py also predicts y [time, 2], but uses separate role encoders and passes lagged partner hidden states into separate role heads.
 train_tcn_attention.py predicts y [time, 2] with separate role encoders and self/partner/joint attention heads over a past context window.
+train_tcn_gated_pool.py predicts y [time, 2] with separate role encoders, pooled past partner context, learned gates, and separate role heads.
 ```
 
 Architecture ablations to consider:
