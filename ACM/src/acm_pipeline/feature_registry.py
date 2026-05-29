@@ -48,6 +48,26 @@ FEATURE_SETS: dict[str, FeatureSet] = {
         streams=("openpose",),
         description="Full OpenPose stream available in the corpus.",
     ),
+    "visual_clip": FeatureSet(
+        name="visual_clip",
+        streams=("clip",),
+        description="CLIP ViT-Base-Patch32 visual embeddings.",
+    ),
+    "visual_dino": FeatureSet(
+        name="visual_dino",
+        streams=("dino",),
+        description="DINOv2 self-supervised visual embeddings.",
+    ),
+    "visual_videomae": FeatureSet(
+        name="visual_videomae",
+        streams=("videomae",),
+        description="VideoMAE v2 masked autoencoder embeddings.",
+    ),
+    "text_xlm_roberta": FeatureSet(
+        name="text_xlm_roberta",
+        streams=("audio.xlm_roberta_embeddings",),
+        description="XLM-RoBERTa multilingual text embeddings.",
+    ),
 }
 
 
