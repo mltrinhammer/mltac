@@ -1,22 +1,55 @@
-# Hand-Off: ACM / NOXI Model Training Overview
+# Hand-Off: ACM / NOXI Training Overview For Martin
 
-## Short Summary
+## First Step
 
-The ACM repository contains the modelling experiments. The organizer repository should mainly be used to load the official data layout, splits, and potentially export predictions in the expected format.
+Before training models, the agent should inspect the organizer repository and the actual data setup.
 
-The recommended setup is:
+The first output from the agent should be:
 
 ```text
-organizer repo reads official data
-  -> adapter converts data to ACM manifest/tensor format
-  -> ACM trains the models
-  -> ACM evaluates with CCC and diagnostics
-  -> optional organizer-compatible prediction/submission export
+1. I have read the hand-off.
+2. I will start with data integration first, then move to modelling.
+3. I will first discuss what the organizer repo already does with the data, then introduce the modelling plan.
 ```
 
-This keeps the competition wrapper and the modelling code separate.
+The reason is simple: the models are already mostly built in ACM, but they are only useful if the actual features, labels, masks, and splits are loaded correctly.
 
-## Where To Find More Detail
+## Big Picture
+
+There are two parts to the work.
+
+First:
+
+```text
+Use the organizer repo to understand and load the real data.
+```
+
+Second:
+
+```text
+Use ACM to train and compare the models.
+```
+
+The organizer repo should mainly help with:
+
+```text
+official data layout
+feature paths
+labels
+splits
+evaluation or submission format
+```
+
+ACM should remain the place for:
+
+```text
+model architectures
+training scripts
+diagnostics
+model comparisons
+```
+
+## Where To Find More Information
 
 Start here:
 
@@ -30,37 +63,59 @@ docs/tcn_modelling.md
 docs/tcn_evaluation_template.md
 ```
 
-Useful orientation:
+What the files are for:
 
 ```text
 docs/01_codebase_structure.md
-  Overview of scripts, source modules, manifests, and outputs.
+  Overview of the repository, scripts, source code, manifests, and outputs.
 
 docs/02_preprocessing_progress.md
-  Current preprocessing status and supported feature branches.
+  What has been done in preprocessing and which feature branches exist.
 
 docs/05_dyadic_representation.md
-  The dyadic tensor format and novice/expert channel convention.
+  How novice and expert are paired together in the dyadic tensors.
 
 docs/03_tcn_architecture.md
-  TCN model families and architecture details.
+  The TCN model family and smoke-test history.
 
 docs/tcn_modelling.md
-  Practical modelling notes and run descriptions.
+  Practical notes on the dyadic and interaction TCN experiments.
 
 docs/tcn_evaluation_template.md
-  Template for summarising training runs.
+  Template for summarising completed runs.
 ```
 
-## Current Stable Data Contract
+## The Data Formats In Plain Terms
 
-The stable ACM dyadic input is session-level tensors listed in a manifest such as:
+ACM has two main ways of feeding data into models.
+
+### 1. Role-Level Data
+
+This means:
 
 ```text
-outputs/manifests/model_processed_manifest_audio_egemaps_raw_dyadic.csv
+train on one person/role at a time
 ```
 
-Each dyadic tensor is expected to contain:
+For example, one model input could be the novice's audio features and the target is the novice's engagement score.
+
+This is used by the simple TCN:
+
+```text
+scripts/train_tcn.py
+```
+
+This model is useful for testing ordinary TCN settings before adding partner interaction.
+
+### 2. Dyadic Data
+
+This means:
+
+```text
+train on novice and expert together
+```
+
+The dyadic tensor format is:
 
 ```text
 x           [time, 2 * feature_dim]
@@ -78,34 +133,162 @@ target channel 0 = novice
 target channel 1 = expert
 ```
 
-The important rule is that training windows must never cross session boundaries.
+Most of the interaction models use this dyadic format.
 
-## Current Model Setups
+Important rule:
 
-### 1. Dyadic TCN
+```text
+training windows must stay inside one session
+```
 
-This is the first model to train seriously.
+No window should mix the end of one session with the start of another.
 
-It uses both roles' features and predicts both roles' engagement. The preferred NOXI setup is role-specific heads, because novice and expert roles are asymmetric.
+## Why Start With A Simple TCN
 
-Use it as the main baseline before testing interaction-specific models.
+Before testing interaction ideas, it is useful to train the simple TCN.
 
-### 2. Partner-Lag TCN
+It answers:
 
-This model asks whether one person's earlier behaviour helps predict the other person's current engagement.
+```text
+Can a normal temporal model predict engagement from one person's features?
+```
+
+It is also the best place to tune basic settings:
+
+```text
+window size
+stride
+hidden channels
+number of TCN levels
+kernel/filter size
+dropout
+learning rate
+CCC loss weight
+```
+
+The TCN uses dilation internally. In layman terms, this means deeper TCN layers can look farther back in time without making the model huge.
+
+If the simple TCN is weak, the interaction models may not be the problem. The issue could be features, labels, splits, or basic settings.
+
+## Model Ladder
+
+The suggested training order is from simplest to most complex.
+
+### 1. Simple TCN
+
+Script:
+
+```text
+scripts/train_tcn.py
+```
+
+This is one person/role at a time. It does not model interaction.
+
+Purpose:
+
+```text
+test basic TCN settings and get a simple baseline
+```
+
+### 2. Basic Dyadic TCN With Shared Head
+
+Script:
+
+```text
+scripts/train_tcn_dyadic.py --head-type shared
+```
+
+This puts novice and expert features together, but uses one shared prediction setup for both roles.
+
+Purpose:
+
+```text
+basic dyadic comparison model
+```
+
+This is important because not all comparison models should already be role-specialised.
+
+### 3. Dyadic TCN With Role-Specific Heads
+
+Script:
+
+```text
+scripts/train_tcn_dyadic.py --head-type role_specific
+```
+
+This still uses both people together, but novice and expert get separate final prediction heads.
+
+Purpose:
+
+```text
+test whether novice and expert need different mappings from features to engagement
+```
+
+This is likely important for NOXI because novice and expert are asymmetric roles.
+
+### 4. Partner-Lag TCN
+
+Script:
+
+```text
+scripts/train_tcn_partner_lag.py
+```
+
+This has separate TCN encoders for novice and expert. It asks whether the partner's earlier behaviour helps predict the target person's current engagement.
 
 Suggested lags:
 
 ```text
--75 frames  = partner 3 seconds back
--750 frames = partner 30 seconds back
+3 seconds back
+30 seconds back
 ```
 
-This is interpretable because it avoids relying on the partner's exact same-time frame.
+At 25 Hz these are:
 
-### 3. Attention TCN
+```text
+-75 frames
+-750 frames
+```
 
-This model lets the network search over a past interaction window.
+### 5. Gated Pooled TCN
+
+Script:
+
+```text
+scripts/train_tcn_gated_pool.py
+```
+
+This summarizes the partner's recent past and learns how much to use it.
+
+Purpose:
+
+```text
+test whether partner history helps in a smooth and interpretable way
+```
+
+Recommended first setting:
+
+```text
+30 second partner pool
+scalar gate
+save gate diagnostics
+```
+
+### 6. Attention TCN
+
+Script:
+
+```text
+scripts/train_tcn_attention.py
+```
+
+This lets the model search over earlier frames.
+
+Purpose:
+
+```text
+test where in the past the model looks for useful interaction information
+```
 
 Recommended setting:
 
@@ -116,29 +299,11 @@ exclude current frame
 save attention diagnostics
 ```
 
-It is flexible, but less controlled than fixed-lag models, so the diagnostics are important.
+### 7. Mixture-of-Experts Later
 
-### 4. Gated Pooled TCN
+MoE should come after the data pipeline and simpler models are stable.
 
-This model summarizes the partner's recent past, then learns how much to blend that partner context into the target role's prediction.
-
-This is currently the most robust and interpretable interaction-focused setup.
-
-Recommended first setting:
-
-```text
-30 second partner pool
-scalar gate
-save gate diagnostics
-```
-
-Also test a 60 second pool if training time allows.
-
-### 5. Mixture-of-Experts Next
-
-The next planned model is an interaction MoE.
-
-The first version should not be a large unconstrained expert system. It should use controlled experts with clear interpretations:
+The first planned MoE should use controlled, interpretable experts:
 
 ```text
 own-only expert
@@ -147,62 +312,95 @@ long partner-lag expert
 pooled partner-past expert
 ```
 
-The router then learns when each explanation is useful for novice and expert engagement prediction.
+The router then learns when each type of explanation is useful.
 
-This is relevant to later generalisation across NOXI, NOXI-J, and PinSoRo, but it should first be validated on NOXI dyadic regression.
+## Basic Versus Role-Separated Models
+
+This distinction should be clear in reporting.
+
+Basic comparison models:
+
+```text
+simple TCN:
+  one person at a time, no partner input
+
+dyadic shared-head TCN:
+  novice and expert together, but one shared prediction head
+```
+
+Role-aware or interaction models:
+
+```text
+dyadic role-specific-head TCN:
+  novice and expert have separate final heads
+
+partner-lag, attention, gated pooled TCN:
+  use separate role encoders and explicit partner-history mechanisms
+```
+
+The basic models matter because they show whether the more complex interaction models are actually improving anything.
 
 ## Suggested Training Steps
 
-1. Confirm that the organizer data loader can access the actual NOXI / NOXI-J data.
-2. Convert or adapt the loaded data into ACM's dyadic manifest/tensor format.
-3. Run a tiny smoke test with the dyadic role-specific TCN.
-4. Train the full dyadic role-specific TCN baseline.
-5. Train Partner-Lag TCN with 3s and 30s partner lags.
-6. Train Gated Pooled TCN with 30s partner pool.
-7. Train Attention TCN with joint 60s past context and current-frame exclusion.
-8. Summarize each run with `docs/tcn_evaluation_template.md`.
-9. Only after this path is stable, move to the MoE architecture.
+1. Inspect the organizer repo and document what it already does with the data.
+2. Confirm available features, labels, masks, splits, and evaluation format.
+3. Convert or connect the organizer data to ACM's role-level and dyadic manifests.
+4. Run a tiny simple TCN smoke test.
+5. Run a tiny dyadic TCN smoke test.
+6. Train the simple TCN and use it to tune basic TCN settings.
+7. Train the dyadic shared-head TCN.
+8. Train the dyadic role-specific-head TCN.
+9. Train Partner-Lag TCN.
+10. Train Gated Pooled TCN.
+11. Train Attention TCN.
+12. Summarize each run using `docs/tcn_evaluation_template.md`.
+13. Move to MoE only after these runs are stable.
 
 ## What To Report Per Run
 
-Please report at minimum:
+Please report:
 
 ```text
-Run name
-Model type
-Feature set and transform
-Train/dev/test split used
-Important hyperparameters
-Overall CCC
-Novice CCC
-Expert CCC
-Other regression metrics if available
-Diagnostics produced
-Short interpretation
-Recommended next run
+run name
+model type
+feature set
+train/dev/test split
+important settings
+overall CCC
+novice CCC
+expert CCC
+MAE or MSE if available
+diagnostics produced
+short interpretation
+recommended next run
 ```
 
-For interaction models, diagnostics are as important as the score, because the goal is to understand which interaction information the model uses.
+For interaction models, diagnostics are important because the goal is not only to improve the score. The goal is also to understand whether the model uses own behaviour, partner history, or both.
 
 ## Practical Starting Point
 
-Recommended first serious run:
+First practical target:
 
 ```text
-audio eGeMAPS raw dyadic
-Dyadic TCN
-role-specific heads
+make the organizer data load into ACM format
 ```
 
-Recommended first interaction run:
+First modelling target:
 
 ```text
-audio eGeMAPS raw dyadic
-Gated Pooled TCN
-30 second partner pool
-scalar gate
-save gates
+simple TCN on role-level eGeMAPS
 ```
 
-This gives a clean baseline and a clean interaction model before moving to more complex attention or MoE experiments.
+First dyadic comparison:
+
+```text
+dyadic TCN with shared head
+dyadic TCN with role-specific heads
+```
+
+First interaction model:
+
+```text
+gated pooled TCN with 30 second partner pool
+```
 
