@@ -1,5 +1,38 @@
 # Hand-Off: ACM / NOXI Training Overview For Martin
 
+## Model Clarification
+
+There are three different "simple vs separated" levels:
+
+```text
+1. Simple role-level TCN: scripts/train_tcn.py
+   One role/person sample at a time.
+   It does not see novice + expert together.
+   It is not separated into two TCNs internally.
+   It is just one TCN model trained across role-level examples.
+
+2. Basic dyadic TCN: scripts/train_tcn_dyadic.py
+   Sees novice and expert together as one combined input.
+   Uses one shared TCN encoder over the concatenated dyadic feature vector.
+   This is the one that "mixes" the roles from the beginning.
+
+3. Interaction models:
+   train_tcn_partner_lag.py
+   train_tcn_attention.py
+   train_tcn_gated_pool.py
+
+   These split the input back into novice features and expert features.
+   They use separate novice/expert TCN encoders, then combine information through lag, attention, or gated partner context.
+```
+
+So the clean phrasing is:
+
+```text
+The simple TCN is role-level and non-interactional.
+The dyadic TCNs are the basic comparison models where novice and expert are combined from the start in one shared TCN encoder.
+The later interaction models use separate role encoders.
+```
+
 ## First Step
 
 Before training models, the agent should inspect the organizer repository and the actual data setup.
@@ -403,4 +436,3 @@ First interaction model:
 ```text
 gated pooled TCN with 30 second partner pool
 ```
-
