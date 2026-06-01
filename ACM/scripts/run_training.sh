@@ -20,6 +20,7 @@ ACM_DIR="${ACM_DIR:-$(pwd)/ACM}"
 SCRIPTS="${ACM_DIR}/scripts"
 MANIFESTS="${ACM_DIR}/outputs/manifests"
 EXPERIMENTS="${ACM_DIR}/outputs/experiments"
+TRANSCRIPT_ROOT="${TRANSCRIPT_ROOT:-$(pwd)}"
 
 # ---- Shared hyperparameters ----
 EPOCHS=50
@@ -36,9 +37,10 @@ STRIDE=125
 BATCH=32
 
 echo "=== ACM Training Pipeline ==="
-echo "ACM_DIR:    ${ACM_DIR}"
-echo "EPOCHS:     ${EPOCHS}"
-echo "PATIENCE:   ${PATIENCE}"
+echo "ACM_DIR:         ${ACM_DIR}"
+echo "TRANSCRIPT_ROOT: ${TRANSCRIPT_ROOT}"
+echo "EPOCHS:          ${EPOCHS}"
+echo "PATIENCE:        ${PATIENCE}"
 echo ""
 
 # ---- Feature sets ----
@@ -75,6 +77,14 @@ common_args() {
          "--levels ${LEVELS} --kernel-size ${KERNEL} --dropout ${DROPOUT}" \
          "--ccc-weight ${CCC_WEIGHT} --window-size ${WINDOW} --stride ${STRIDE}" \
          "--batch-size ${BATCH}"
+}
+
+# Turn-based variant: no --window-size / --stride (turns replace fixed windows).
+turn_common_args() {
+    echo "--epochs ${EPOCHS} --patience ${PATIENCE} --lr ${LR}" \
+         "--weight-decay ${WEIGHT_DECAY} --hidden-channels ${HIDDEN}" \
+         "--levels ${LEVELS} --kernel-size ${KERNEL} --dropout ${DROPOUT}" \
+         "--ccc-weight ${CCC_WEIGHT} --batch-size ${BATCH}"
 }
 
 # =====================================================================
@@ -163,6 +173,22 @@ for fs in "${FEATURE_SETS[@]}"; do
         --exclude-current-frame \
         --save-attention \
         $(common_args)
+done
+
+# =====================================================================
+# Model Ladder Step 7: Turn-segmented Partner-Lag TCN
+# =====================================================================
+echo "=== Step 7: Turn-Segmented Partner-Lag TCN ==="
+for fs in "${FEATURE_SETS[@]}"; do
+    manifest="${MANIFESTS}/model_processed_manifest_${fs}_raw.csv"
+    [ ! -f "${manifest}" ] && echo "  [skip] ${fs} — no role-level manifest" && continue
+    run_if_needed "${fs}_turns_partner_lag" \
+        python "${SCRIPTS}/train_tcn_turns.py" \
+        --manifest "${manifest}" \
+        --transcript-root "${TRANSCRIPT_ROOT}" \
+        --model partner_lag \
+        --partner-lags 0 \
+        $(turn_common_args)
 done
 
 echo "=== Training complete ==="
