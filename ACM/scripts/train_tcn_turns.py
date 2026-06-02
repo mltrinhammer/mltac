@@ -86,6 +86,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--patience", type=int, default=12)
+    parser.add_argument("--min-epochs", type=int, default=10)
+    parser.add_argument("--min-delta", type=float, default=1e-3)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--ccc-weight", type=float, default=0.5)
@@ -370,6 +372,10 @@ class _SessionStub:
 
 def main() -> None:
     args = parse_args()
+    if args.min_epochs < 0:
+        raise ValueError("--min-epochs must be non-negative.")
+    if args.min_delta < 0:
+        raise ValueError("--min-delta must be non-negative.")
     set_seed(args.seed)
     device = resolve_device(args.device)
     run_dir = make_run_dir(args)
@@ -429,7 +435,7 @@ def main() -> None:
         val_metrics = grouped_dyadic_metric_outputs(run_dir, reconstructed)
         val_ccc = val_metrics["ccc"]
 
-        improved = np.isfinite(val_ccc) and val_ccc > best_ccc
+        improved = np.isfinite(val_ccc) and val_ccc > best_ccc + args.min_delta
         if improved:
             best_ccc = val_ccc
             best_epoch = epoch
@@ -456,13 +462,20 @@ def main() -> None:
             "val_pearson": val_metrics["pearson"],
             "best_epoch": best_epoch,
             "best_val_ccc": best_ccc,
+            "stale_epochs": stale_epochs,
         })
         write_csv(run_dir / "training_log.csv", list(log_rows[0].keys()), log_rows)
         print(
             f"epoch={epoch:03d}  train_loss={train_loss:.5f}  val_ccc={val_ccc:.5f}  best_epoch={best_epoch}",
             flush=True,
         )
-        if args.patience > 0 and stale_epochs >= args.patience:
+        if args.patience > 0 and epoch >= args.min_epochs and stale_epochs >= args.patience:
+            print(
+                f"early_stop epoch={epoch:03d} best_epoch={best_epoch:03d} "
+                f"best_val_ccc={best_ccc:.5f} stale_epochs={stale_epochs} "
+                f"patience={args.patience} min_delta={args.min_delta:.5f}",
+                flush=True,
+            )
             break
 
     print(f"Run directory: {run_dir}", flush=True)
