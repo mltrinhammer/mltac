@@ -28,6 +28,7 @@ MODEL_ORDER = [
     "partner_lag",
     "gated_pool",
     "attention",
+    "turns_partner_lag",
 ]
 
 MODEL_LABELS = {
@@ -37,6 +38,7 @@ MODEL_LABELS = {
     "partner_lag": "Partner-Lag TCN",
     "gated_pool": "Gated Pool TCN",
     "attention": "Attention TCN",
+    "turns_partner_lag": "Turn-Segmented Partner-Lag TCN",
 }
 
 # Feature set display order (voice first, then text, then video — matching organizer).
@@ -106,7 +108,9 @@ def read_role_metrics(path: Path) -> dict[str, float]:
 
 def parse_run_name(run_name: str) -> tuple[str, str] | None:
     """Split a run name into (feature_set, model_type)."""
-    for model in MODEL_ORDER:
+    # Match the longest suffix first so nested names like
+    # "*_turns_partner_lag" are not misclassified as "*_partner_lag".
+    for model in sorted(MODEL_ORDER, key=len, reverse=True):
         if run_name.endswith(f"_{model}"):
             feature_set = run_name[: -(len(model) + 1)]
             return feature_set, model
