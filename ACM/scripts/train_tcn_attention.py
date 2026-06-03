@@ -521,22 +521,21 @@ def main() -> None:
             )
             break
 
-    if args.save_attention and (run_dir / "model_best.pt").exists():
-        # Reload the best checkpoint and export attention diagnostics once.
-        # This keeps multi-epoch training practical while still making the
-        # selected model interpretable.
-        checkpoint = torch.load(run_dir / "model_best.pt", map_location=device)
+    best_checkpoint_path = run_dir / "model_best.pt"
+    if best_checkpoint_path.exists():
+        checkpoint = torch.load(best_checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         reconstructed, diagnostics = reconstruct_validation(
             model,
             val_dataset,
             val_loader,
             device,
-            collect_attention=True,
+            collect_attention=args.save_attention,
             attention_topk=args.attention_export_topk,
             attention_query_stride=args.attention_export_query_stride,
             attention_bins=args.attention_summary_bins,
         )
+        grouped_dyadic_metric_outputs(run_dir, reconstructed)
         write_dyadic_prediction_csv(run_dir / "val_predictions.csv", reconstructed)
         if diagnostics is not None:
             write_attention_diagnostics(run_dir, diagnostics)

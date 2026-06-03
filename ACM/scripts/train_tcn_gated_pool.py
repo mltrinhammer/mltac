@@ -405,19 +405,19 @@ def main() -> None:
             )
             break
 
-    if args.save_gates and (run_dir / "model_best.pt").exists():
-        # Gate diagnostics are exported once from the best checkpoint. This
-        # keeps multi-epoch training fast while still allowing interpretation.
-        checkpoint = torch.load(run_dir / "model_best.pt", map_location=device)
+    best_checkpoint_path = run_dir / "model_best.pt"
+    if best_checkpoint_path.exists():
+        checkpoint = torch.load(best_checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         reconstructed, diagnostics = reconstruct_validation(
             model,
             val_dataset,
             val_loader,
             device,
-            collect_gates=True,
+            collect_gates=args.save_gates,
             gate_query_stride=args.gate_export_query_stride,
         )
+        grouped_dyadic_metric_outputs(run_dir, reconstructed)
         write_dyadic_prediction_csv(run_dir / "val_predictions.csv", reconstructed)
         if diagnostics is not None:
             write_gate_diagnostics(run_dir, diagnostics)

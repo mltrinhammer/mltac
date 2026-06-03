@@ -85,10 +85,12 @@ def compute_turn_segments(
     ---------
     1. Collect every speech **onset** from both roles.
     2. Sort chronologically.
-    3. Each segment spans from one onset to the next (or session end).
-    4. Assign each segment to the role whose onset initiated it.
-    5. Convert seconds → frame indices, clamp to ``[0, session_len_frames]``.
-    6. Drop zero-length segments.
+     3. Keep only the first onset in each consecutive same-speaker run.
+     4. Each segment spans from one speaker-change onset to the next (or
+         session end).
+    5. Assign each segment to the role whose onset initiated it.
+    6. Convert seconds → frame indices, clamp to ``[0, session_len_frames]``.
+    7. Drop zero-length segments.
     """
 
     onsets: list[tuple[float, str]] = []
@@ -104,12 +106,20 @@ def compute_turn_segments(
     # first in the list (novice before expert) keeps its position.
     onsets.sort(key=lambda t: t[0])
 
+    # Consecutive utterances from the same speaker belong to the same turn.
+    # Keep the first onset in each same-speaker run so turns end only when the
+    # speaker changes, matching the docstring above.
+    turn_starts: list[tuple[float, str]] = [onsets[0]]
+    for onset_sec, role in onsets[1:]:
+        if role != turn_starts[-1][1]:
+            turn_starts.append((onset_sec, role))
+
     segments: list[TurnSegment] = []
     session_end_sec = session_len_frames / rate
 
-    for idx, (onset_sec, role) in enumerate(onsets):
-        if idx + 1 < len(onsets):
-            next_sec = onsets[idx + 1][0]
+    for idx, (onset_sec, role) in enumerate(turn_starts):
+        if idx + 1 < len(turn_starts):
+            next_sec = turn_starts[idx + 1][0]
         else:
             next_sec = session_end_sec
 

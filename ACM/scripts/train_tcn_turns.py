@@ -38,7 +38,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.acm_pipeline.data import ManifestExample, read_model_manifest
-from src.acm_pipeline.dyadic_train_utils import grouped_dyadic_metric_outputs, write_csv
+from src.acm_pipeline.dyadic_train_utils import grouped_dyadic_metric_outputs, write_csv, write_dyadic_prediction_csv
 from src.acm_pipeline.metrics import ccc_loss, masked_mse_loss
 from src.acm_pipeline.models_tcn import (
     GatedPooledTCNRegressor,
@@ -477,6 +477,14 @@ def main() -> None:
                 flush=True,
             )
             break
+
+    best_checkpoint_path = run_dir / "model_best.pt"
+    if best_checkpoint_path.exists():
+        checkpoint = torch.load(best_checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        reconstructed = reconstruct_validation(model, val_dataset, val_loader, device)
+        grouped_dyadic_metric_outputs(run_dir, reconstructed)
+        write_dyadic_prediction_csv(run_dir / "val_predictions.csv", reconstructed)
 
     print(f"Run directory: {run_dir}", flush=True)
 

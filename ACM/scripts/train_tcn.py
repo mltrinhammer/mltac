@@ -233,6 +233,14 @@ def main() -> None:
             )
             break
 
+    best_checkpoint_path = run_dir / "model_best.pt"
+    if best_checkpoint_path.exists():
+        checkpoint = torch.load(best_checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        reconstructed = reconstruct_validation(model, val_dataset, val_loader, device)
+        grouped_metric_outputs(run_dir, reconstructed)
+        write_prediction_csv(run_dir / "val_predictions.csv", reconstructed)
+
     print(f"Run directory: {run_dir}", flush=True)
 
 
