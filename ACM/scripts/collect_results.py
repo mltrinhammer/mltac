@@ -22,23 +22,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Model type display order (matches the handoff model ladder).
 MODEL_ORDER = [
-    "simple_tcn",
-    "dyadic_shared",
-    "dyadic_role",
-    "partner_lag",
-    "gated_pool",
-    "attention",
-    "turns_partner_lag",
+    "turns_simple_tcn",
+    "turns_dyadic_shared",
+    "turns_attention",
 ]
 
 MODEL_LABELS = {
-    "simple_tcn": "Simple TCN",
-    "dyadic_shared": "Dyadic (shared head)",
-    "dyadic_role": "Dyadic (role heads)",
-    "partner_lag": "Partner-Lag TCN",
-    "gated_pool": "Gated Pool TCN",
-    "attention": "Attention TCN",
-    "turns_partner_lag": "Turn-Segmented Partner-Lag TCN",
+    "turns_simple_tcn": "Turn-Level Simple TCN",
+    "turns_dyadic_shared": "Turn-Level Dyadic (shared head)",
+    "turns_attention": "Turn-Level Attention TCN",
 }
 
 # Feature set display order (voice first, then text, then video — matching organizer).

@@ -1,4 +1,2 @@
 numpy
-scikit-learn
 torch
-xgboost

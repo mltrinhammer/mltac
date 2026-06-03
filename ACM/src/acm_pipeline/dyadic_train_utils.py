@@ -5,8 +5,10 @@ from pathlib import Path
 
 import numpy as np
 
-from src.acm_pipeline.dyadic_data import DyadicManifestExample, ROLE_ORDER
 from src.acm_pipeline.metrics import RegressionMetrics, regression_metrics
+
+
+ROLE_ORDER = ("novice", "expert")
 
 
 def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) -> None:
@@ -79,7 +81,6 @@ def write_dyadic_prediction_csv(path: Path, reconstructed: list[dict[str, object
         writer.writeheader()
         for item in reconstructed:
             example = item["example"]
-            assert isinstance(example, DyadicManifestExample)
             y_true = item["y_true"]
             y_pred = item["y_pred"]
             target_mask = item["target_mask"]

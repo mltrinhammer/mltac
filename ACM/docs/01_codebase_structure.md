@@ -1,512 +1,97 @@
-# Codebase Structure
+# ACM Codebase Structure
 
-This repository contains the clean, GitHub-ready pipeline for preparing NOXI / NOXI-J features and training continuous engagement models. Large data artifacts are intentionally excluded from git.
+## Top-level layout
 
-## Repository Layout
+- `scripts/`: entry points for manifest building, preprocessing, training, SLURM submission, and result collation.
+- `src/acm_pipeline/`: shared library code for manifests, alignment, turn construction, transforms, metrics, and TCN models.
+- `processed/`: generated aligned and normalized NPZ tensors.
+- `outputs/manifests/`: raw, aligned, normalized, and paired-turn CSV manifests.
+- `outputs/transforms/`: fitted normalizer artifacts for each feature set.
+- `outputs/experiments/`: one directory per training run, containing configs, checkpoints, metrics, and validation predictions.
+- `docs/`: minimal documentation for the active turn-level pipeline.
 
-```text
-ACM/
-  README.md
-  requirements.txt
-  scripts/
-  src/acm_pipeline/
-  docs/
-```
+## Active scripts
 
-Generated folders are currently visible to git for this project hand-off:
+### `scripts/build_manifests_from_organizer.py`
 
-```text
-processed/
-outputs/
-models/
-```
-
-Raw external cache folders should still be treated carefully because full feature caches can become too large for normal GitHub pushes.
-
-## Source Package
-
-### `src/acm_pipeline/feature_registry.py`
-
-Defines the supported feature sets and their underlying stream names.
-
-Current feature sets:
-
-```text
-audio_egemaps      -> audio.egemapsv2
-audio_w2vbert2     -> audio.w2vbert2_embeddings
-visual_swin        -> swin
-visual_openface    -> openface2 + openface3
-visual_openpose    -> openpose
-```
-
-The registry is used by preprocessing scripts so stream combinations are defined in one place.
-
-### `src/acm_pipeline/io.py`
-
-Shared input/output helpers:
-
-```text
-CSV manifest reading/writing
-cache path resolution
-engagement target loading
-SSI .stream header parsing
-binary stream loading
-```
-
-The stream loader expects SSI-style files:
-
-```text
-example.stream   # text metadata, including sr and dim
-example.stream~  # raw float32 feature matrix
-```
-
-### `src/acm_pipeline/alignment.py`
-
-Aligns stream matrices to the 25 Hz engagement target grid.
-
-Main rule:
-
-```text
-if frame count nearly matches target length: trust frame count and truncate
-else: use declared sample rate and linear interpolation
-```
-
-This handles known cases where stream sample-rate metadata can be misleading while frame counts are already aligned to the target.
-
-### `src/acm_pipeline/transforms.py`
-
-Reusable transform utilities:
-
-```text
-train-only z-score normalization
-frame sampling for reducer fitting
-PCA fitting
-Gaussian random projection fitting
-transform serialization
-```
-
-Normalization is fitted on the training split only, then applied unchanged to validation/test rows.
-
-### `src/acm_pipeline/data.py`
-
-Shared model-input utilities:
-
-```text
-processed/transformed manifest loading
-NPZ tensor loading
-lazy sequence-window indexing
-XGBoost window-summary table construction
-```
-
-The key design is that models consume the same tensor contract regardless of whether the input branch is raw, PCA, or random projection:
-
-```text
-x             [time, features]
-y             [time]
-target_mask   [time]
-```
-
-### `src/acm_pipeline/dyadic_data.py`
-
-Shared dyadic model-input utilities:
-
-```text
-dyadic manifest loading
-dyadic NPZ tensor validation
-lazy dyadic sequence-window indexing
-dyadic XGBoost window-summary table construction
-```
-
-The dyadic tensor contract is:
-
-```text
-x             [time, 2 * features]
-y             [time, 2]
-target_mask   [time, 2]
-role_order    ["novice", "expert"]
-```
-
-### `src/acm_pipeline/metrics.py`
-
-Shared regression metrics and losses:
-
-```text
-CCC
-MAE
-RMSE
-Pearson
-masked MSE loss
-CCC loss
-```
-
-CCC is the primary validation metric.
-
-### `src/acm_pipeline/models_tcn.py`
-
-Defines a small residual TCN for frame-level sequence regression.
-
-Input/output:
-
-```text
-input:  [batch, features, time]
-output: [batch, time] or [batch, time, output_dim]
-```
-
-### `src/acm_pipeline/models_transformer.py`
-
-Defines a small encoder-only Transformer for frame-level sequence regression.
-
-Input/output:
-
-```text
-input:  [batch, features, time]
-output: [batch, time] or [batch, time, output_dim]
-```
-
-The model projects input features to `d_model`, adds positional encoding, applies Transformer encoder layers, and predicts one engagement value per frame.
-
-### `src/acm_pipeline/train_utils.py`
-
-Shared training/evaluation output helpers:
-
-```text
-grouped metrics by overall/dataset/role/session
-frame-level validation prediction export
-CSV writing
-```
-
-### `src/acm_pipeline/dyadic_train_utils.py`
-
-Shared dyadic training/evaluation output helpers:
-
-```text
-metrics by overall/role-channel/dataset/session
-long-format dyadic validation prediction export
-CSV writing
-```
-
-## Scripts
+Scans organizer-format `noxi/` and `noxij/` directories, creates `ACM/cache/` symlinks, and writes the raw manifests consumed by preprocessing.
 
 ### `scripts/noxi_prepare_feature_tensors_25hz.py`
 
-Purpose: create aligned 25 Hz tensors for one feature set.
-
-Inputs:
-
-```text
-raw modelling manifest with split labels
-stream manifest with paths, stream names, sr, dim
-local cache containing .stream and .stream~ files
-```
-
-Outputs:
-
-```text
-processed/<feature_set>_25hz/<dataset>/<session>/<role>.<feature_set>.25hz.npz
-outputs/manifests/model_processed_manifest_<feature_set>_25hz.csv
-outputs/manifests/feature_status_<feature_set>_25hz.csv
-```
-
-Each NPZ contains:
-
-```text
-x
-y
-target_mask
-stream_names
-stream_dims
-stream_source_rates
-stream_alignment_methods
-sample_rate_hz
-feature_set
-```
+Builds one 25 Hz role-level tensor branch for a single registered feature set. It aligns required streams to the engagement target timeline and writes compressed NPZ tensors plus a processed manifest.
 
 ### `scripts/noxi_fit_apply_feature_transform.py`
 
-Purpose: turn aligned tensors into model-input tensors for one transform branch.
+Fits a train-only z-score normalizer on aligned tensors and exports the normalized `raw` branch. This is the only remaining transform branch.
 
-Supported methods:
+### `scripts/noxi_build_turn_manifest.py`
 
-```text
-raw                 # z-score normalization only
-pca                 # z-score normalization + PCA
-random_projection   # z-score normalization + Gaussian random projection
-```
+Pairs novice and expert role tensors for each session, reads transcripts, computes turn boundaries from speaker changes, and writes the paired turn manifest used by training.
 
-Outputs:
+### `scripts/train_tcn_turns.py`
 
-```text
-processed/transformed/<feature_set>_<method>/
-outputs/manifests/model_processed_manifest_<feature_set>_<method>.csv
-outputs/transforms/<feature_set>_<method>/normalizer.npz
-outputs/transforms/<feature_set>_<method>/transform_config.json
-```
+Trains the active turn-level TCN models from paired turn manifests. It supports three model types: `simple`, `dyadic_shared`, and `attention`.
 
-Additional PCA output:
+### `scripts/collect_results.py`
 
-```text
-outputs/transforms/<feature_set>_pca<n>/pca.pkl
-outputs/transforms/<feature_set>_pca<n>/pca_explained_variance.csv
-```
+Scans completed experiment directories and prints markdown tables over validation metrics.
 
-Additional random projection output:
+### `scripts/run_preprocessing.sh`
 
-```text
-outputs/transforms/<feature_set>_rp<n>/random_projection.pkl
-```
+SLURM-friendly wrapper that runs the full preprocessing chain for all registered feature sets.
 
-### `scripts/noxi_fit_apply_feature_transform_by_role.py`
+### `scripts/run_training.sh`
 
-Purpose: fit role-specific normalization and optional dimensionality reduction.
+SLURM-friendly wrapper that trains the three active model ladder steps over every available turn manifest.
 
-This script is parallel to `noxi_fit_apply_feature_transform.py`, but it fits separate transform objects for:
+### `scripts/submit_training_steps.sh`
 
-```text
-novice
-expert
-```
+Submits preprocessing first and then submits selected training steps with an `afterok` dependency on the preprocessing job.
 
-This supports dyadic experiments where novice and expert features are compressed separately before being concatenated at each time step.
+## Active library modules
 
-Primary outputs:
+### `src/acm_pipeline/alignment.py`
 
-```text
-processed/transformed/<feature_set>_<method>_by_role/
-outputs/manifests/model_processed_manifest_<feature_set>_<method>_by_role.csv
-outputs/transforms/<feature_set>_<method>_by_role/novice/
-outputs/transforms/<feature_set>_<method>_by_role/expert/
-```
+Rate conversion utilities for mapping source feature streams onto the 25 Hz engagement timeline.
 
-### `scripts/noxi_build_dyadic_tensors.py`
+### `src/acm_pipeline/data.py`
 
-Purpose: fuse role-level transformed tensors into time-aligned dyadic session tensors.
+Typed manifest loading for role-level tensors and the shared NPZ session loader used by later preprocessing and turn datasets.
 
-Input:
+### `src/acm_pipeline/dyadic_train_utils.py`
 
-```text
-any role-level transformed manifest
-```
+Shared metric and prediction writers for the two-target turn-level models.
 
-Output tensor contract:
+### `src/acm_pipeline/feature_registry.py`
 
-```text
-x           [time, 2 * feature_dim]
-y           [time, 2]
-target_mask [time, 2]
-role_order  ["novice", "expert"]
-```
+Registry of all supported unimodal feature sets and their required streams.
 
-Further details live in:
+### `src/acm_pipeline/io.py`
 
-```text
-docs/05_dyadic_representation.md
-```
+CSV readers and writers plus low-level helpers for reading stream matrices and targets from local cache paths.
 
-### `scripts/train_tcn.py`
+### `src/acm_pipeline/metrics.py`
 
-Purpose: train a frame-level TCN from any transformed manifest.
+Masked regression losses and reporting metrics, including CCC.
 
-Architecture notes and experiment tracking live in:
+### `src/acm_pipeline/models_tcn.py`
 
-```text
-docs/03_tcn_architecture.md
-```
+The active TCN model implementations: shared person-level baseline, shared dyadic baseline, and role-attention model.
 
-Windowing is done lazily inside the data loader:
+### `src/acm_pipeline/transforms.py`
 
-```text
-aligned/transformed session tensor
--> window indices in memory
--> fixed-length batches
--> frame-level predictions
--> overlapping validation windows averaged back to full sessions
-```
+Train-only feature normalization utilities. Only `FeatureNormalizer` remains active.
 
-Primary outputs:
+### `src/acm_pipeline/turns.py`
 
-```text
-outputs/experiments/<run_name>/model_best.pt
-outputs/experiments/<run_name>/config.json
-outputs/experiments/<run_name>/training_log.csv
-outputs/experiments/<run_name>/val_predictions.csv
-outputs/experiments/<run_name>/metrics_*.csv
-```
+Transcript parsing and turn boundary computation. Consecutive utterances from the same speaker are merged into one turn run.
 
-### `scripts/train_tcn_dyadic.py`
+### `src/acm_pipeline/turn_data.py`
 
-Purpose: train a frame-level TCN from any dyadic manifest.
+Paired turn manifest reader, turn dataset, and batch collation logic for variable-length turn segments.
 
-Input/output:
+## Output contract
 
-```text
-input x:  [batch, 2 * features, time]
-output:   [batch, time, 2]
-targets:  [batch, time, 2]
-```
-
-The two output channels are novice and expert engagement. Validation windows are averaged back to full dyadic sessions and metrics are reported overall, by role channel, by dataset, and by session.
-
-Head variants:
-
-```text
---head-type shared         # one 2-channel prediction head
---head-type role_specific  # one 1-channel prediction head per role
-```
-
-Both variants use the same dyadic TCN encoder, so this is a focused test of the output mapping.
-
-### `scripts/train_tcn_partner_lag.py`
-
-Purpose: train a partner-aware TCN from any dyadic manifest.
-
-This experiment uses two separate temporal encoders:
-
-```text
-novice features -> novice TCN encoder -> novice hidden sequence
-expert features -> expert TCN encoder -> expert hidden sequence
-```
-
-Each role has a separate head. The novice head receives novice hidden states plus lagged expert hidden states; the expert head receives expert hidden states plus lagged novice hidden states.
-
-Lag convention:
-
-```text
---partner-lags -25 0 25
--25 = partner hidden state from 25 frames in the past
-0   = partner hidden state at the same frame
-25  = partner hidden state from 25 frames in the future
-```
-
-At 25 Hz, 25 frames is one second. Positive lags are offline-only because they use future partner context.
-
-### `scripts/train_tcn_attention.py`
-
-Purpose: train role-specific TCN encoders with role-specific attention heads.
-
-Supported attention contexts:
-
-```text
-self     # target role attends to its own hidden history
-partner  # target role attends to partner hidden history
-joint    # target role attends to own + partner hidden history
-```
-
-Important options:
-
-```text
---attention-past-frames 1500   # one minute at 25 Hz
---exclude-current-frame        # remove source time t when possible
---save-attention               # export diagnostics from the best checkpoint
-```
-
-Attention diagnostic outputs:
-
-```text
-attention_by_lag.csv
-attention_by_lag_bin.csv
-attention_by_source.csv
-attention_by_session_phase.csv
-attention_topk.csv
-```
-
-### `scripts/train_tcn_gated_pool.py`
-
-Purpose: train role-specific TCN encoders with learned gates over pooled past partner context.
-
-Model idea:
-
-```text
-target hidden sequence
-partner hidden sequence pooled over previous N frames
--> learned gate in [0, 1]
--> fused target/partner representation
--> role-specific engagement head
-```
-
-Important options:
-
-```text
---partner-pool-frames 750   # 30 seconds at 25 Hz
---partner-pool-frames 1500  # 60 seconds at 25 Hz
---gate-type scalar          # one interpretable gate per role/time
---gate-type channel         # one gate per hidden channel
---save-gates                # export gate diagnostics from the best checkpoint
-```
-
-By default, partner frame `t` is excluded from the pooled context, so the model uses only past partner information. Use `--include-current-frame` only for explicitly non-causal/offline ablations.
-
-Gate diagnostic outputs:
-
-```text
-gate_by_role.csv
-gate_by_session.csv
-gate_by_session_phase.csv
-gate_timeseries_sample.csv
-```
-
-### `scripts/train_xgboost.py`
-
-Purpose: train a tabular XGBoost baseline from any transformed manifest.
-
-Because XGBoost is not sequence-native, each window is summarized into fixed descriptors:
-
-```text
-mean per feature
-std per feature
-optional min/max per feature
-```
-
-The model predicts one scalar engagement value per window. Validation predictions are assigned back over the covered frames and averaged across overlapping windows, so reported metrics are still frame-level and comparable with the TCN.
-
-Primary outputs:
-
-```text
-outputs/experiments/<run_name>/model.pkl
-outputs/experiments/<run_name>/config.json
-outputs/experiments/<run_name>/val_predictions.csv
-outputs/experiments/<run_name>/metrics_*.csv
-```
-
-### `scripts/train_xgboost_dyadic.py`
-
-Purpose: train a tabular XGBoost baseline from any dyadic manifest.
-
-Each dyadic window is summarized into fixed descriptors, and the model predicts two scalar window targets:
-
-```text
-[novice_mean_engagement, expert_mean_engagement]
-```
-
-The predictions are expanded back over covered frames and averaged across overlapping windows.
-
-### `scripts/train_transformer.py`
-
-Purpose: train an encoder-only Transformer from any transformed manifest.
-
-Architecture notes and experiment tracking live in:
-
-```text
-docs/04_transformer_architecture.md
-```
-
-Like the TCN, the Transformer uses lazy sequence windows and reconstructs validation predictions by averaging overlapping window outputs back onto full sessions.
-
-Primary outputs:
-
-```text
-outputs/experiments/<run_name>/model_best.pt
-outputs/experiments/<run_name>/config.json
-outputs/experiments/<run_name>/training_log.csv
-outputs/experiments/<run_name>/val_predictions.csv
-outputs/experiments/<run_name>/metrics_*.csv
-```
-
-### `scripts/train_transformer_dyadic.py`
-
-Purpose: train an encoder-only Transformer from any dyadic manifest.
-
-It follows the same windowing, masking, reconstruction, and metric layout as `train_tcn_dyadic.py`, but uses the Transformer encoder model.
-
-## Current Modelling Code
-
-The ACM repo now contains both role-level and dyadic baseline trainers for TCN, Transformer, and XGBoost. The role-level scripts remain useful baselines; the dyadic scripts should be used when modelling both people as a time-aligned interaction sequence.
+- Role-level tensors are stored per dataset, session, and role as NPZ files with `x`, `y`, and `target_mask` arrays.
+- Turn manifests do not duplicate tensors. They reference the source novice and expert tensors and store `start_frame` and `end_frame` for each turn.
+- Training outputs include `model_best.pt`, `config.json`, `metrics_overall.csv`, `metrics_by_role.csv`, `metrics_by_dataset.csv`, `metrics_by_session.csv`, and `val_predictions.csv`.

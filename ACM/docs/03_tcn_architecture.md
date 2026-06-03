@@ -1,638 +1,91 @@
-# TCN Architecture Notes
+# Turn-Level TCN Architecture
 
-This document explains the adjustable parts of the TCN baseline and keeps a running log of configurations tried. Update the second section whenever a new TCN experiment is run.
+## Shared input contract
 
-## Adjustable Architecture Components
+The active trainer is `scripts/train_tcn_turns.py`. It consumes paired turn manifests produced by preprocessing and builds batches from `src/acm_pipeline/turn_data.py`.
 
-### Input Features
+For one turn batch:
 
-Controlled by the manifest passed to:
+- `x` has shape `[batch, 2F, T]`
+- the first `F` channels are novice features
+- the next `F` channels are expert features
+- `y` has shape `[batch, T, 2]` in role order `[novice, expert]`
+- `target_mask` and `loss_mask` have the same target layout
 
-```powershell
-python scripts\train_tcn.py --manifest <manifest.csv>
-```
+Turns are variable-length. `turn_collate_fn` pads each batch to the local maximum turn length and uses masks so padding never affects losses or metrics.
 
-Examples:
+## Model ladder
 
-```text
-raw eGeMAPS
-PCA-reduced eGeMAPS
-random-projection eGeMAPS
-W2V-BERT2 PCA
-Swin raw/PCA/RP
-OpenFace raw/PCA/RP
-OpenPose raw/PCA/RP
-```
+### 1. `simple`
 
-The TCN reads `n_features` from the manifest and sets:
+Implemented by `IndependentDyadicTCNRegressor`.
 
-```text
-input_dim = n_features
-```
+- Splits the input into novice and expert halves.
+- Applies the same person-level TCN weights to each role independently.
+- Predicts both roles for every turn interval.
+- Provides the fairest no-interaction baseline because the non-speaker is retained as a separate person stream, not dropped.
 
-Effect:
+This model never mixes novice and expert hidden states.
 
-```text
-larger input_dim gives the model more feature channels
-larger input_dim also increases first-layer parameter count and overfitting risk
-PCA/RP reduce input_dim before the TCN
-```
+### 2. `dyadic_shared`
 
-### Window Size
+Implemented by `DyadicTCNRegressor`.
 
-CLI argument:
+- Receives the concatenated novice and expert channels as one dyadic input tensor.
+- Uses one temporal encoder over the paired signal.
+- Uses one shared two-channel prediction head to output novice and expert engagement jointly.
 
-```powershell
---window-size 500
-```
+This is the lightest interaction model in the active comparison ladder.
 
-At 25 Hz:
+### 3. `attention`
 
-```text
-250 frames = 10 seconds
-500 frames = 20 seconds
-750 frames = 30 seconds
-```
+Implemented by `RoleAttentionTCNRegressor`.
 
-Effect:
+- Uses separate novice and expert temporal encoders.
+- Applies role-specific multi-head attention over self, partner, or joint history.
+- Concatenates each role's local hidden state with its attended context before prediction.
 
-```text
-larger windows give the model more temporal context
-larger windows use more memory and may include less locally relevant context
-smaller windows train faster and focus on shorter dynamics
-too-small windows may miss slow engagement changes
-```
+The current launcher uses:
 
-Current default:
+- `attention_context=joint`
+- `attention_past_frames=1500`
+- `exclude_current_frame=true`
 
-```text
-500 frames = 20 seconds
-```
+At 25 Hz, `1500` frames correspond to roughly 60 seconds of past context.
 
-### Stride
+## Training objective
 
-CLI argument:
+Each model is trained with the same masked objective:
 
-```powershell
---stride 125
-```
+`loss = masked_mse_loss + ccc_weight * ccc_loss`
 
-At 25 Hz:
+Other shared training behavior:
 
-```text
-125 frames = 5 seconds
-250 frames = 10 seconds
-```
+- gradient clipping at `max_norm=5.0`
+- reproducible seeding for Python, NumPy, and PyTorch
+- validation reconstruction back to full session timelines
+- early stopping on validation overall CCC with `min_epochs`, `min_delta`, and `patience`
+- reload of the best checkpoint before final metrics and prediction export
 
-Effect:
+The validation reports use raw CCC, where higher is better.
 
-```text
-smaller stride creates more overlapping windows
-smaller stride gives denser training coverage but more compute
-larger stride is faster but gives fewer training examples
-validation predictions are averaged where windows overlap
-```
+## Validation outputs
 
-Current default:
+Each run directory contains:
 
-```text
-125 frames = 5 seconds
-```
+- `metrics_overall.csv`
+- `metrics_by_role.csv`
+- `metrics_by_dataset.csv`
+- `metrics_by_session.csv`
+- `val_predictions.csv`
 
-### Hidden Channels / Filters
+`reconstruct_validation()` averages predictions from non-overlapping turn segments back onto session frames so the exported metrics stay aligned with the original role-level timelines.
 
-CLI argument:
+## Psychological and technical validity of role combination
 
-```powershell
---hidden-channels 64
-```
+- Novice and expert are always aligned on the same observed turn interval.
+- Both targets are predicted on every turn, including the non-speaker's engagement.
+- The `simple` baseline keeps both people fully separate and therefore does not assume direct interaction inside the model.
+- The interaction models only combine role information after both people have been aligned to the same interval and represented in a consistent role order.
 
-This is the number of convolutional channels in each TCN block.
-
-Effect:
-
-```text
-more channels increase model capacity
-more channels can capture richer feature interactions
-more channels increase memory, compute, and overfitting risk
-fewer channels are faster and safer for small datasets
-```
-
-Typical values to test:
-
-```text
-16, 32, 64, 128
-```
-
-Current default:
-
-```text
-64
-```
-
-### Number of Levels / Blocks
-
-CLI argument:
-
-```powershell
---levels 4
-```
-
-Each level is one residual temporal convolution block.
-
-Effect:
-
-```text
-more levels increase temporal receptive field
-more levels increase depth and capacity
-too many levels can overfit or become harder to optimize
-fewer levels are simpler and faster
-```
-
-Current default:
-
-```text
-4
-```
-
-### Kernel Size / Filter Width
-
-CLI argument:
-
-```powershell
---kernel-size 5
-```
-
-The kernel size is how many time steps each convolution sees before dilation.
-
-At 25 Hz:
-
-```text
-kernel_size 3 covers 0.12 seconds before dilation
-kernel_size 5 covers 0.20 seconds before dilation
-kernel_size 9 covers 0.36 seconds before dilation
-```
-
-Effect:
-
-```text
-larger kernel size captures wider local temporal patterns
-larger kernel size increases parameters and compute
-smaller kernel size focuses on sharper local changes
-kernel size interacts with dilation and levels to determine receptive field
-```
-
-Typical values to test:
-
-```text
-3, 5, 7, 9
-```
-
-Current default:
-
-```text
-5
-```
-
-### Dilation
-
-Current implementation:
-
-```text
-dilation = 2 ** level_index
-```
-
-So:
-
-```text
-levels=4 -> dilations 1, 2, 4, 8
-levels=5 -> dilations 1, 2, 4, 8, 16
-```
-
-Effect:
-
-```text
-dilation expands temporal context without downsampling
-higher dilation lets later layers see farther back/forward in the window
-too much dilation can skip over short local details
-```
-
-Current CLI control:
-
-```text
-adjust --levels to indirectly change the dilation sequence
-```
-
-Possible future CLI options:
-
-```text
---dilation-base 2
---dilations 1 2 4 8
-```
-
-### Dropout
-
-CLI argument:
-
-```powershell
---dropout 0.2
-```
-
-Effect:
-
-```text
-higher dropout regularizes more strongly
-higher dropout may help high-dimensional streams like W2V-BERT2 or Swin
-too much dropout can underfit
-lower dropout may work for compact inputs like eGeMAPS
-```
-
-Typical values:
-
-```text
-0.1, 0.2, 0.3, 0.5
-```
-
-Current default:
-
-```text
-0.2
-```
-
-### Loss Weighting
-
-CLI argument:
-
-```powershell
---ccc-weight 0.5
-```
-
-Current loss:
-
-```text
-masked MSE + ccc_weight * CCC loss
-```
-
-Effect:
-
-```text
-higher ccc_weight prioritizes concordance/correlation structure
-lower ccc_weight prioritizes absolute frame-level error
-CCC is the primary validation metric, so this weight is worth tuning
-```
-
-Typical values:
-
-```text
-0.0, 0.25, 0.5, 1.0
-```
-
-Current default:
-
-```text
-0.5
-```
-
-### Learning Rate and Weight Decay
-
-CLI arguments:
-
-```powershell
---lr 0.001
---weight-decay 0.0001
-```
-
-Effect:
-
-```text
-higher learning rate trains faster but can become unstable
-lower learning rate is safer but slower
-higher weight decay regularizes weights more strongly
-too much weight decay can underfit
-```
-
-Current defaults:
-
-```text
-lr = 0.001
-weight_decay = 0.0001
-```
-
-### Early Stopping
-
-CLI arguments:
-
-```powershell
---epochs 50
---patience 12
-```
-
-Effect:
-
-```text
-more epochs allow more fitting
-patience stops training if validation CCC does not improve
-early stopping helps reduce overfitting
-```
-
-Current defaults:
-
-```text
-epochs = 50
-patience = 12
-```
-
-### Dyadic Output Head
-
-CLI argument for dyadic TCN only:
-
-```powershell
---head-type shared
---head-type role_specific
-```
-
-Shared head:
-
-```text
-one temporal encoder
-one 2-channel Conv1d head
-outputs [novice_engagement, expert_engagement]
-```
-
-Role-specific heads:
-
-```text
-one temporal encoder
-one 1-channel Conv1d head for novice
-one 1-channel Conv1d head for expert
-outputs are concatenated back to [novice_engagement, expert_engagement]
-```
-
-Effect:
-
-```text
-shared head tests whether one output mapping is sufficient for both roles
-role-specific heads test whether novice and expert need separate output mappings
-the encoder stays identical, so the comparison isolates the final prediction layer
-```
-
-### Partner-Lag Heads
-
-CLI argument for partner-lag TCN:
-
-```powershell
---partner-lags -25 0 25
-```
-
-Model structure:
-
-```text
-novice features -> novice TCN encoder -> novice hidden sequence
-expert features -> expert TCN encoder -> expert hidden sequence
-```
-
-Novice prediction head:
-
-```text
-novice_hidden_t
-expert_hidden_t+lag1
-expert_hidden_t+lag2
-...
--> novice engagement_t
-```
-
-Expert prediction head:
-
-```text
-expert_hidden_t
-novice_hidden_t+lag1
-novice_hidden_t+lag2
-...
--> expert engagement_t
-```
-
-Lag convention:
-
-```text
-negative lag = partner past
-zero lag     = partner same frame
-positive lag = partner future
-```
-
-At 25 Hz:
-
-```text
--25 = partner one second earlier
-0   = partner same frame
-25  = partner one second later
-```
-
-Effect:
-
-```text
-separate encoders allow novice and expert to learn different temporal representations
-separate heads allow novice and expert engagement mappings to differ
-partner lags test whether one person's recent or future behaviour helps predict the other person's engagement
-positive lags should be used only for offline experiments
-```
-
-### Attention Heads
-
-CLI arguments for attention TCN:
-
-```powershell
---attention-context self
---attention-context partner
---attention-context joint
---attention-past-frames 1500
---exclude-current-frame
-```
-
-Model structure:
-
-```text
-novice features -> novice TCN encoder -> novice hidden sequence
-expert features -> expert TCN encoder -> expert hidden sequence
-```
-
-Attention contexts:
-
-```text
-self:    target role attends to its own hidden history
-partner: target role attends to partner hidden history
-joint:   target role attends to own + partner hidden history
-```
-
-At 25 Hz:
-
-```text
-750 frames  = 30 seconds
-1500 frames = 60 seconds
-```
-
-Effect:
-
-```text
-self attention tests whether flexible weighting over the role's own recent hidden states helps
-partner attention tests whether partner history alone adds useful interaction information
-joint attention tests whether own and partner history are useful together
-past-window restriction makes the attention easier to interpret and closer to causal modelling
-```
-
-Diagnostics:
-
-```text
---save-attention writes attention_by_lag/source/session_phase and sampled top-k attention rows
-relative_lag_frames < 0 means the attended source is before the prediction time
-diagnostics are exported once from the best checkpoint because full attention matrices are large
-```
-
-### Gated Pooled Partner Context
-
-CLI arguments for gated pooled TCN:
-
-```powershell
---partner-pool-frames 750
---partner-pool-frames 1500
---gate-type scalar
---gate-type channel
---save-gates
-```
-
-Model structure:
-
-```text
-novice features -> novice TCN encoder -> novice hidden sequence
-expert features -> expert TCN encoder -> expert hidden sequence
-```
-
-For novice prediction:
-
-```text
-expert_context_t = mean(expert_hidden from t-N ... t-1)
-gate_t = sigmoid([novice_hidden_t, expert_context_t])
-fused_t = novice_hidden_t + gate_t * expert_context_t
-novice head -> novice engagement_t
-```
-
-The expert side mirrors this with beginner/novice context.
-
-At 25 Hz:
-
-```text
-750 frames  = 30 seconds
-1500 frames = 60 seconds
-```
-
-Effect:
-
-```text
-pooled context tests whether the partner's recent behaviour window helps
-the gate learns when partner context should matter more or less
-scalar gates are easiest to interpret
-channel gates are more flexible but less directly readable
-partner frame t is excluded by default for clearer interaction timing
-```
-
-Diagnostics:
-
-```text
---save-gates writes gate_by_role/session/session_phase and sampled gate time series
-mean_gate near 0 means the head mostly uses target-role hidden state
-mean_gate near 1 means the head strongly uses pooled partner context
-```
-
-## Receptive Field Intuition
-
-The receptive field is the approximate temporal span that can influence one output frame.
-
-For the current two-convolution residual block and dilation sequence:
-
-```text
-larger kernel_size -> wider local context per block
-more levels -> more dilated blocks
-higher dilation -> wider temporal reach
-larger window_size -> more available context, but the model's effective context is limited by receptive field
-```
-
-Example default:
-
-```text
-kernel_size = 5
-levels = 4
-dilations = 1, 2, 4, 8
-```
-
-Approximate receptive field:
-
-```text
-1 + 2 * (kernel_size - 1) * sum(dilations)
-= 1 + 2 * 4 * (1 + 2 + 4 + 8)
-= 121 frames
-= 4.84 seconds at 25 Hz
-```
-
-This is smaller than the 20-second window. The full window still matters for batching and validation coverage, but each frame prediction mostly depends on a local receptive field unless the model is made deeper/wider in time.
-
-## Current Default Command
-
-```powershell
-python scripts\train_tcn.py `
-  --manifest outputs\manifests\model_processed_manifest_audio_egemaps_raw.csv `
-  --window-size 500 `
-  --stride 125 `
-  --hidden-channels 64 `
-  --levels 4 `
-  --kernel-size 5 `
-  --dropout 0.2 `
-  --ccc-weight 0.5
-```
-
-## Experiment Log
-
-Add one row per run.
-
-| Date | Run Name | Manifest | Window | Stride | Channels | Levels | Kernel | Dilations | Dropout | Loss | Val CCC | Notes |
-|---|---|---|---:|---:|---:|---:|---:|---|---:|---|---:|---|
-| 2026-05-27 | `smoke_tcn_raw` | `model_processed_manifest_audio_egemaps_raw.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.01543 | Smoke test only: 1 epoch, 16 train windows. Not a real result. |
-| 2026-05-27 | `smoke_tcn_dyadic_shared_head` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.12774 | Smoke test only: shared 2-channel dyadic head, 1 epoch, 8 train windows. |
-| 2026-05-27 | `smoke_tcn_dyadic_role_heads` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.01804 | Smoke test only: one dyadic head per role, 1 epoch, 8 train windows. |
-| 2026-05-28 | `smoke_tcn_partner_lag_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.08297 | Smoke test only: separate role TCNs, separate heads, partner lags -25/0/25, 1 epoch, 8 train windows. |
-| 2026-05-28 | `smoke_tcn_attention_joint_diag_fast` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 125 | 5000 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | -0.07045 | Smoke test only: joint attention, 50-frame past window, attention diagnostics enabled. |
-| 2026-05-28 | `smoke_tcn_gated_pool_raw` | `model_processed_manifest_audio_egemaps_raw_dyadic.csv` | 500 | 125 | 8 | 1 | 5 | 1 | 0.2 | MSE + 0.5 CCC | 0.09410 | Smoke test only: scalar gates, pooled partner past 75 frames, 1 epoch, 8 train windows. |
-
-## Planned Comparisons
-
-Candidate first real TCN runs:
-
-```text
-eGeMAPS raw, small TCN
-eGeMAPS PCA, same TCN
-eGeMAPS random projection, same TCN
-W2V-BERT2 PCA, small/regularized TCN
-Swin PCA, small/regularized TCN
-OpenFace raw or PCA
-OpenPose raw or PCA
-```
-
-Dyadic note:
-
-```text
-train_tcn.py is role-level and predicts y [time].
-train_tcn_dyadic.py predicts y [time, 2] from dyadic tensors.
-Use --head-type shared or --head-type role_specific to compare dyadic output heads.
-train_tcn_partner_lag.py also predicts y [time, 2], but uses separate role encoders and passes lagged partner hidden states into separate role heads.
-train_tcn_attention.py predicts y [time, 2] with separate role encoders and self/partner/joint attention heads over a past context window.
-train_tcn_gated_pool.py predicts y [time, 2] with separate role encoders, pooled past partner context, learned gates, and separate role heads.
-```
-
-Architecture ablations to consider:
-
-```text
-kernel_size: 3 vs 5 vs 9
-hidden_channels: 32 vs 64 vs 128
-levels: 3 vs 4 vs 5
-dropout: 0.2 vs 0.3 vs 0.5
-ccc_weight: 0.25 vs 0.5 vs 1.0
-window_size: 250 vs 500 vs 750
-```
+This makes the three-model ladder an ordered comparison from no cross-person interaction, to shared dyadic encoding, to explicit contextual interaction.

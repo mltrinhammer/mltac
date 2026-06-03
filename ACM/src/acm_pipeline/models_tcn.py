@@ -85,8 +85,38 @@ class TCNRegressor(nn.Module):
         return out.transpose(1, 2)
 
 
+class IndependentDyadicTCNRegressor(nn.Module):
+    """Shared person-level TCN applied independently to novice and expert."""
+
+    def __init__(
+        self,
+        n_features_per_role: int,
+        hidden_channels: int = 64,
+        levels: int = 4,
+        kernel_size: int = 5,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+        self.n_features_per_role = n_features_per_role
+        self.person_tcn = TCNRegressor(
+            input_dim=n_features_per_role,
+            hidden_channels=hidden_channels,
+            levels=levels,
+            kernel_size=kernel_size,
+            dropout=dropout,
+            output_dim=1,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        novice_x = x[:, : self.n_features_per_role]
+        expert_x = x[:, self.n_features_per_role : 2 * self.n_features_per_role]
+        novice_pred = self.person_tcn(novice_x)
+        expert_pred = self.person_tcn(expert_x)
+        return torch.stack([novice_pred, expert_pred], dim=2)
+
+
 class DyadicTCNRegressor(nn.Module):
-    """TCN for dyadic engagement with configurable shared or role-specific heads."""
+    """TCN for dyadic engagement with one shared two-channel prediction head."""
 
     def __init__(
         self,
@@ -95,16 +125,11 @@ class DyadicTCNRegressor(nn.Module):
         levels: int = 4,
         kernel_size: int = 5,
         dropout: float = 0.2,
-        head_type: str = "shared",
     ) -> None:
         super().__init__()
-        if head_type not in {"shared", "role_specific"}:
-            raise ValueError(f"Unsupported dyadic head_type: {head_type}")
-        self.head_type = head_type
 
-        # The encoder is identical for both variants. This keeps the
-        # comparison focused on the prediction head rather than temporal
-        # capacity or receptive field.
+        # The shared dyadic baseline uses one encoder over the paired input and
+        # one lightweight head that predicts both roles jointly.
         channels = [input_dim] + [hidden_channels] * levels
         blocks = []
         for idx in range(levels):
@@ -118,122 +143,12 @@ class DyadicTCNRegressor(nn.Module):
                 )
             )
         self.tcn = nn.Sequential(*blocks)
-
-        if head_type == "shared":
-            # One head predicts both target channels jointly. The two output
-            # filters can still differ, but they live in the same module.
-            self.head = nn.Conv1d(hidden_channels, 2, kernel_size=1)
-            self.role_heads = None
-        else:
-            # Separate lightweight heads test whether novice and expert need
-            # different mappings from the shared dyadic temporal encoding.
-            self.head = None
-            self.role_heads = nn.ModuleList(
-                [
-                    nn.Conv1d(hidden_channels, 1, kernel_size=1),
-                    nn.Conv1d(hidden_channels, 1, kernel_size=1),
-                ]
-            )
+        self.head = nn.Conv1d(hidden_channels, 2, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Input is [batch, 2 * features, time]. Output is always
         # [batch, time, 2] with channels [novice, expert].
-        encoded = self.tcn(x)
-        if self.head_type == "shared":
-            out = self.head(encoded)
-        else:
-            out = torch.cat([head(encoded) for head in self.role_heads], dim=1)
-        return out.transpose(1, 2)
-
-
-def _shift_hidden_sequence(x: torch.Tensor, lag: int) -> torch.Tensor:
-    """Return partner hidden states shifted so output at t can use partner at t + lag."""
-
-    if lag == 0:
-        return x
-
-    shifted = torch.zeros_like(x)
-    time_len = x.shape[-1]
-    if abs(lag) >= time_len:
-        return shifted
-
-    if lag < 0:
-        # Negative lag means past partner context. For lag=-25, prediction at
-        # time t receives partner hidden state from t-25, with zeros at the
-        # first 25 frames where that context does not exist.
-        offset = abs(lag)
-        shifted[..., offset:] = x[..., : time_len - offset]
-    else:
-        # Positive lag means future partner context. This is only appropriate
-        # for offline experiments, where the full interaction is available.
-        shifted[..., : time_len - lag] = x[..., lag:]
-    return shifted
-
-
-class PartnerLagTCNRegressor(nn.Module):
-    """Two role-specific TCN encoders with separate heads using lagged partner states."""
-
-    def __init__(
-        self,
-        n_features_per_role: int,
-        hidden_channels: int = 64,
-        levels: int = 4,
-        kernel_size: int = 5,
-        dropout: float = 0.2,
-        partner_lags: tuple[int, ...] = (0,),
-    ) -> None:
-        super().__init__()
-        self.n_features_per_role = n_features_per_role
-        self.partner_lags = tuple(partner_lags)
-
-        def make_encoder() -> nn.Sequential:
-            # Each role gets its own temporal encoder. The structure is the
-            # same, but the weights are not shared, so novice and expert can
-            # learn different temporal representations.
-            channels = [n_features_per_role] + [hidden_channels] * levels
-            blocks = []
-            for idx in range(levels):
-                blocks.append(
-                    TemporalBlock(
-                        in_channels=channels[idx],
-                        out_channels=channels[idx + 1],
-                        kernel_size=kernel_size,
-                        dilation=2**idx,
-                        dropout=dropout,
-                    )
-                )
-            return nn.Sequential(*blocks)
-
-        self.novice_encoder = make_encoder()
-        self.expert_encoder = make_encoder()
-
-        # Each head sees target-role hidden state plus one shifted partner
-        # hidden sequence per requested lag. Heads are separate because the
-        # novice and expert engagement mappings may differ.
-        head_channels = hidden_channels * (1 + len(self.partner_lags))
-        self.novice_head = nn.Conv1d(head_channels, 1, kernel_size=1)
-        self.expert_head = nn.Conv1d(head_channels, 1, kernel_size=1)
-
-    def _head_input(self, target_hidden: torch.Tensor, partner_hidden: torch.Tensor) -> torch.Tensor:
-        """Concatenate target hidden state with lagged partner hidden states."""
-
-        partner_context = [_shift_hidden_sequence(partner_hidden, lag) for lag in self.partner_lags]
-        return torch.cat([target_hidden] + partner_context, dim=1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Input is [batch, 2 * features_per_role, time] in role order
-        # [novice_features, expert_features]. Output is [batch, time, 2].
-        novice_x = x[:, : self.n_features_per_role]
-        expert_x = x[:, self.n_features_per_role : 2 * self.n_features_per_role]
-
-        novice_hidden = self.novice_encoder(novice_x)
-        expert_hidden = self.expert_encoder(expert_x)
-
-        novice_in = self._head_input(novice_hidden, expert_hidden)
-        expert_in = self._head_input(expert_hidden, novice_hidden)
-        novice_pred = self.novice_head(novice_in)
-        expert_pred = self.expert_head(expert_in)
-        return torch.cat([novice_pred, expert_pred], dim=1).transpose(1, 2)
+        return self.head(self.tcn(x)).transpose(1, 2)
 
 
 class RoleAttentionTCNRegressor(nn.Module):
@@ -369,123 +284,4 @@ class RoleAttentionTCNRegressor(nn.Module):
             "expert_weights": expert_weights,
             "novice_sources": novice_sources,
             "expert_sources": expert_sources,
-        }
-
-
-def _pooled_past_context(x: torch.Tensor, pool_frames: int, exclude_current_frame: bool = True) -> torch.Tensor:
-    """Mean-pool a hidden sequence over the previous pool_frames for every t."""
-
-    if pool_frames <= 0:
-        raise ValueError("pool_frames must be positive.")
-
-    batch, channels, time_len = x.shape
-    if exclude_current_frame:
-        # Shift right by one frame so context at t summarizes frames before t.
-        # The first frame has no past and therefore receives a zero context.
-        shifted = torch.zeros_like(x)
-        shifted[..., 1:] = x[..., :-1]
-    else:
-        shifted = x
-
-    # Cumulative sums make causal window means efficient. Padding one zero
-    # column at the front lets us subtract arbitrary window starts cleanly.
-    prefix = torch.cat([torch.zeros(batch, channels, 1, device=x.device, dtype=x.dtype), torch.cumsum(shifted, dim=-1)], dim=-1)
-    end = torch.arange(time_len, device=x.device) + 1
-    start = torch.clamp(end - pool_frames, min=0)
-    pooled_sum = prefix.index_select(-1, end) - prefix.index_select(-1, start)
-    if exclude_current_frame:
-        # At query frame t there are t real past frames available. Clamp at one
-        # so the first all-zero context remains numerically well-defined.
-        counts_1d = torch.clamp(torch.minimum(torch.arange(time_len, device=x.device), torch.tensor(pool_frames, device=x.device)), min=1)
-    else:
-        counts_1d = torch.clamp(end - start, min=1)
-    counts = counts_1d.to(dtype=x.dtype).view(1, 1, time_len)
-    return pooled_sum / counts
-
-
-class GatedPooledTCNRegressor(nn.Module):
-    """Separate role TCNs with learned gates over pooled past partner context."""
-
-    def __init__(
-        self,
-        n_features_per_role: int,
-        hidden_channels: int = 64,
-        levels: int = 4,
-        kernel_size: int = 5,
-        dropout: float = 0.2,
-        partner_pool_frames: int = 750,
-        exclude_current_frame: bool = True,
-        gate_type: str = "scalar",
-    ) -> None:
-        super().__init__()
-        if gate_type not in {"scalar", "channel"}:
-            raise ValueError(f"Unsupported gate_type: {gate_type}")
-        self.n_features_per_role = n_features_per_role
-        self.partner_pool_frames = partner_pool_frames
-        self.exclude_current_frame = exclude_current_frame
-        self.gate_type = gate_type
-
-        def make_encoder() -> nn.Sequential:
-            # Role-specific encoders keep beginner/novice and expert temporal
-            # representations separate before interaction is introduced.
-            channels = [n_features_per_role] + [hidden_channels] * levels
-            blocks = []
-            for idx in range(levels):
-                blocks.append(
-                    TemporalBlock(
-                        in_channels=channels[idx],
-                        out_channels=channels[idx + 1],
-                        kernel_size=kernel_size,
-                        dilation=2**idx,
-                        dropout=dropout,
-                    )
-                )
-            return nn.Sequential(*blocks)
-
-        self.novice_encoder = make_encoder()
-        self.expert_encoder = make_encoder()
-
-        gate_out_channels = 1 if gate_type == "scalar" else hidden_channels
-        # Gates are learned from target hidden state and pooled partner context.
-        # A scalar gate is easiest to interpret; a channel gate is more flexible.
-        self.novice_gate = nn.Conv1d(hidden_channels * 2, gate_out_channels, kernel_size=1)
-        self.expert_gate = nn.Conv1d(hidden_channels * 2, gate_out_channels, kernel_size=1)
-
-        # Separate heads keep the role-specific interpretation clear: partner
-        # context may affect novice and expert engagement differently.
-        self.novice_head = nn.Conv1d(hidden_channels, 1, kernel_size=1)
-        self.expert_head = nn.Conv1d(hidden_channels, 1, kernel_size=1)
-
-    def _fuse(self, target_hidden: torch.Tensor, partner_hidden: torch.Tensor, gate_layer: nn.Conv1d) -> tuple[torch.Tensor, torch.Tensor]:
-        """Pool partner history, learn a gate, and fuse it with target hidden state."""
-
-        partner_context = _pooled_past_context(
-            partner_hidden,
-            pool_frames=self.partner_pool_frames,
-            exclude_current_frame=self.exclude_current_frame,
-        )
-        gate = torch.sigmoid(gate_layer(torch.cat([target_hidden, partner_context], dim=1)))
-        fused = target_hidden + gate * partner_context
-        return fused, gate
-
-    def forward(self, x: torch.Tensor, return_gates: bool = False) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        # Input is [batch, 2 * features_per_role, time] with role order
-        # [novice_features, expert_features]. Output is [batch, time, 2].
-        novice_x = x[:, : self.n_features_per_role]
-        expert_x = x[:, self.n_features_per_role : 2 * self.n_features_per_role]
-
-        novice_hidden = self.novice_encoder(novice_x)
-        expert_hidden = self.expert_encoder(expert_x)
-
-        novice_fused, novice_gate = self._fuse(novice_hidden, expert_hidden, self.novice_gate)
-        expert_fused, expert_gate = self._fuse(expert_hidden, novice_hidden, self.expert_gate)
-
-        novice_pred = self.novice_head(novice_fused)
-        expert_pred = self.expert_head(expert_fused)
-        pred = torch.cat([novice_pred, expert_pred], dim=1).transpose(1, 2)
-        if not return_gates:
-            return pred
-        return pred, {
-            "novice_gate": novice_gate,
-            "expert_gate": expert_gate,
         }

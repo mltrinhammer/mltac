@@ -13,32 +13,22 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # This script is the second preprocessing stage. It takes aligned 25 Hz tensors
-# and creates model-input branches: normalized raw features, PCA-compressed
-# features, or random-projection-compressed features.
+# and creates the active model-input branch: normalized raw features.
 
 from src.acm_pipeline.io import read_csv, write_csv
-from src.acm_pipeline.transforms import (
-    FeatureNormalizer,
-    fit_pca,
-    fit_random_projection,
-    sample_normalized_frames,
-    save_pickle,
-)
+from src.acm_pipeline.transforms import FeatureNormalizer
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments for normalization and optional dimensionality reduction."""
+    """Parse CLI arguments for train-only normalization export."""
 
-    parser = argparse.ArgumentParser(description="Fit train-only normalization/reduction and export transformed tensors.")
+    parser = argparse.ArgumentParser(description="Fit train-only normalization and export transformed tensors.")
     parser.add_argument("--input-manifest", type=Path, required=True)
-    parser.add_argument("--method", choices=["raw", "pca", "random_projection"], required=True)
-    parser.add_argument("--n-components", type=int, default=None)
+    parser.add_argument("--method", choices=["raw"], default="raw")
     parser.add_argument("--train-split", default="train_internal")
     parser.add_argument("--out-root", type=Path, default=None)
     parser.add_argument("--output-manifest", type=Path, default=None)
     parser.add_argument("--transform-dir", type=Path, default=None)
-    parser.add_argument("--max-fit-frames", type=int, default=100_000)
-    parser.add_argument("--seed", type=int, default=13)
     return parser.parse_args()
 
 
@@ -61,12 +51,7 @@ def infer_feature_set(rows: list[dict[str, str]]) -> str:
 def method_suffix(args: argparse.Namespace) -> str:
     """Create a stable suffix for output folders and manifests."""
 
-    if args.method == "raw":
-        return "raw"
-    if args.n_components is None:
-        raise ValueError(f"--n-components is required for method {args.method!r}")
-    short = "rp" if args.method == "random_projection" else args.method
-    return f"{short}{args.n_components}"
+    return "raw"
 
 
 def default_out_root(feature_set: str, suffix: str) -> Path:
@@ -77,35 +62,10 @@ def default_manifest_path(feature_set: str, suffix: str) -> Path:
     return PROJECT_ROOT / "outputs" / "manifests" / f"model_processed_manifest_{feature_set}_{suffix}.csv"
 
 
-def export_variance(path: Path, reducer: object) -> None:
-    """Write PCA explained-variance diagnostics when available."""
+def transform_matrix(x: np.ndarray, normalizer: FeatureNormalizer) -> np.ndarray:
+    """Normalize one sequence with the train-fitted normalizer."""
 
-    # Only PCA exposes explained_variance_ratio_. Random projection has no
-    # learned variance ordering, so there is no analogous diagnostic table.
-    ratios = getattr(reducer, "explained_variance_ratio_", None)
-    if ratios is None:
-        return
-    rows = []
-    cumulative = 0.0
-    for idx, ratio in enumerate(ratios, start=1):
-        cumulative += float(ratio)
-        rows.append(
-            {
-                "component_idx": idx,
-                "explained_variance_ratio": float(ratio),
-                "cumulative_explained_variance": cumulative,
-            }
-        )
-    write_csv(path, ["component_idx", "explained_variance_ratio", "cumulative_explained_variance"], rows)
-
-
-def transform_matrix(x: np.ndarray, normalizer: FeatureNormalizer, reducer: object | None) -> np.ndarray:
-    """Normalize one sequence and optionally apply a fitted reducer."""
-
-    x_norm = normalizer.transform(x)
-    if reducer is None:
-        return x_norm.astype(np.float32, copy=False)
-    return reducer.transform(x_norm).astype(np.float32, copy=False)
+    return normalizer.transform(x).astype(np.float32, copy=False)
 
 
 def main() -> None:
@@ -135,31 +95,8 @@ def main() -> None:
     normalizer_path = transform_dir / "normalizer.npz"
     normalizer.save(normalizer_path)
 
-    reducer = None
     reducer_path = ""
     variance_path = ""
-    if args.method in {"pca", "random_projection"}:
-        # Reducers are fit on a reproducible frame sample to keep large embedding
-        # streams practical on local machines and UCloud sessions.
-        frames = sample_normalized_frames(train_paths, normalizer, max_frames=args.max_fit_frames, seed=args.seed)
-        if args.n_components is None or args.n_components <= 0:
-            raise ValueError("--n-components must be positive for dimensionality reduction.")
-        if args.n_components > frames.shape[1]:
-            raise ValueError(f"n_components={args.n_components} exceeds input dimension {frames.shape[1]}.")
-        if args.method == "pca":
-            # PCA gives an interpretable compression branch and writes a
-            # cumulative explained-variance table for choosing component counts.
-            reducer = fit_pca(frames, n_components=args.n_components, seed=args.seed)
-            variance_csv = transform_dir / "pca_explained_variance.csv"
-            export_variance(variance_csv, reducer)
-            variance_path = str(variance_csv.relative_to(PROJECT_ROOT)).replace("\\", "/")
-        else:
-            # Random projection is a simple non-PCA compression baseline. It is
-            # useful for checking whether PCA structure itself matters.
-            reducer = fit_random_projection(frames, n_components=args.n_components, seed=args.seed)
-        reducer_file = transform_dir / f"{args.method}.pkl"
-        save_pickle(reducer, reducer_file)
-        reducer_path = str(reducer_file.relative_to(PROJECT_ROOT)).replace("\\", "/")
 
     processed_rows: list[dict[str, object]] = []
     for row in rows:
@@ -168,7 +105,7 @@ def main() -> None:
         in_path = tensor_path(row)
         with np.load(in_path, allow_pickle=True) as data:
             x = np.asarray(data["x"], dtype=np.float32)
-            x_out = transform_matrix(x, normalizer, reducer)
+            x_out = transform_matrix(x, normalizer)
             out_dir = out_root / row["dataset"] / row["session_id"]
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / f"{row['role']}.{feature_set}.{suffix}.npz"
@@ -183,7 +120,7 @@ def main() -> None:
                 feature_set=np.asarray([feature_set]),
                 transform_method=np.asarray([args.method]),
                 normalizer_path=np.asarray([str(normalizer_path.relative_to(PROJECT_ROOT)).replace("\\", "/")]),
-                reducer_path=np.asarray([reducer_path]),
+                reducer_path=np.asarray([""]),
                 sample_rate_hz=np.asarray(data["sample_rate_hz"], dtype=np.float32),
             )
         processed_rows.append(
@@ -208,20 +145,17 @@ def main() -> None:
         "input_manifest": str(args.input_manifest),
         "output_manifest": str(output_manifest),
         "feature_set": feature_set,
-        "method": args.method,
-        "n_components": args.n_components,
+        "method": "raw",
         "train_split": args.train_split,
-        "max_fit_frames": args.max_fit_frames,
-        "seed": args.seed,
         "normalizer_path": str(normalizer_path),
-        "reducer_path": str(transform_dir / f"{args.method}.pkl") if reducer is not None else "",
+        "reducer_path": "",
     }
     transform_dir.mkdir(parents=True, exist_ok=True)
     with (transform_dir / "transform_config.json").open("w", encoding="utf-8") as handle:
         json.dump(config, handle, indent=2)
 
     print(f"Input manifest: {args.input_manifest}")
-    print(f"Method: {args.method}")
+    print("Method: raw")
     print(f"Wrote transformed rows: {len(processed_rows)}")
     print(f"Output manifest: {output_manifest}")
     print(f"Transform dir: {transform_dir}")

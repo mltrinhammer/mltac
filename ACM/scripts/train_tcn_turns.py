@@ -1,20 +1,20 @@
-"""Train a separate-encoder TCN on speech-turn-segmented dyadic data.
+"""Train turn-level TCN baselines from paired dyadic turn manifests.
 
-Instead of fixed-size sliding windows, this script partitions each session
-into non-overlapping *speech turns* (from one speaker's onset to the next
-speaker's onset) and trains a dyadic model on those variable-length segments.
+Instead of fixed-size sliding windows, this script consumes precomputed
+speech-turn rows and trains one of three active TCN variants on those
+variable-length segments:
 
-Both roles' features are provided for every turn, but they are kept separate
-and processed through independent encoders.  The model predicts engagement
-for both novice and expert at every frame.
+* ``simple``: one shared person-level TCN applied independently to novice and expert
+* ``dyadic_shared``: one shared dyadic encoder over concatenated role inputs
+* ``attention``: separate role encoders plus role-specific temporal attention
+
+All variants predict engagement for both novice and expert at every frame.
 
 Usage example
 -------------
     python scripts/train_tcn_turns.py \
-        --manifest outputs/manifests/model_processed_manifest_audio_egemaps_raw.csv \
-        --transcript-root /path/to/mltac \
-        --model partner_lag \
-        --partner-lags 0 \
+    --manifest outputs/manifests/model_processed_manifest_audio_egemaps_raw_turns.csv \
+    --model attention \
         --epochs 50
 """
 
@@ -24,7 +24,6 @@ import argparse
 import json
 import random
 import sys
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -37,19 +36,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.acm_pipeline.data import ManifestExample, read_model_manifest
 from src.acm_pipeline.dyadic_train_utils import grouped_dyadic_metric_outputs, write_csv, write_dyadic_prediction_csv
 from src.acm_pipeline.metrics import ccc_loss, masked_mse_loss
 from src.acm_pipeline.models_tcn import (
-    GatedPooledTCNRegressor,
-    PartnerLagTCNRegressor,
+    DyadicTCNRegressor,
+    IndependentDyadicTCNRegressor,
     RoleAttentionTCNRegressor,
 )
-from src.acm_pipeline.turn_data import ROLE_ORDER, TurnDataset, TurnSample, turn_collate_fn
-from src.acm_pipeline.turns import compute_turn_segments, read_transcript
+from src.acm_pipeline.turn_data import TurnDataset, read_turn_manifest, turn_collate_fn
 
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "experiments"
-TRANSCRIPT_SUFFIX = "audio.transcript.annotation.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -57,29 +53,24 @@ TRANSCRIPT_SUFFIX = "audio.transcript.annotation.csv"
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a turn-segmented dyadic TCN.")
-    parser.add_argument("--manifest", type=Path, required=True, help="Role-level processed/transformed manifest CSV.")
-    parser.add_argument("--transcript-root", type=Path, required=True, help="Parent directory containing noxi/ and noxij/ with raw transcript CSVs.")
+    parser = argparse.ArgumentParser(description="Train turn-segmented TCN models from paired turn supervision.")
+    parser.add_argument("--manifest", type=Path, required=True, help="Paired turn manifest CSV.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-name", default="")
     parser.add_argument("--train-split", default="train_internal")
     parser.add_argument("--val-split", default="val_internal")
 
     # Model
-    parser.add_argument("--model", choices=["partner_lag", "gated_pool", "attention"], default="partner_lag")
+    parser.add_argument("--model", choices=["simple", "dyadic_shared", "attention"], default="attention")
     parser.add_argument("--hidden-channels", type=int, default=64)
     parser.add_argument("--levels", type=int, default=4)
     parser.add_argument("--kernel-size", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.2)
-    # partner_lag specific
-    parser.add_argument("--partner-lags", type=int, nargs="+", default=[0])
-    # gated_pool specific
-    parser.add_argument("--partner-pool-frames", type=int, default=750)
-    parser.add_argument("--gate-type", choices=["scalar", "channel"], default="scalar")
     # attention specific
     parser.add_argument("--attention-context", choices=["self", "partner", "joint"], default="joint")
     parser.add_argument("--attention-heads", type=int, default=4)
     parser.add_argument("--attention-past-frames", type=int, default=1500)
+    parser.add_argument("--exclude-current-frame", action="store_true")
 
     # Training
     parser.add_argument("--min-turn-frames", type=int, default=5, help="Drop turns shorter than this many frames.")
@@ -129,100 +120,6 @@ def serializable_args(args: argparse.Namespace) -> dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
-# Data preparation
-# ---------------------------------------------------------------------------
-
-def _group_by_session(examples: list[ManifestExample]) -> dict[str, dict[str, ManifestExample]]:
-    """Group manifest examples by (dataset, session_id) → {role: example}."""
-
-    groups: dict[str, dict[str, ManifestExample]] = defaultdict(dict)
-    for ex in examples:
-        key = f"{ex.dataset}/{ex.session_id}"
-        groups[key][ex.role] = ex
-    return dict(groups)
-
-
-def _locate_transcript(transcript_root: Path, dataset: str, session_id: str, role: str) -> Path | None:
-    """Try to find a transcript annotation CSV under the raw NoXi layout.
-
-    The raw data on HPC is structured as::
-
-        <transcript_root>/<dataset>/<split>/<session_id>/<role>.audio.transcript.annotation.csv
-
-    where ``<dataset>`` is the literal name (``noxi`` or ``noxij``) and
-    ``<split>`` is ``train``, ``val``, ``test-base``, etc.  Since we do not
-    know which split a session belongs to at lookup time, we walk all
-    immediate subdirectories of the dataset folder.
-    """
-
-    base = transcript_root / dataset
-    if not base.exists():
-        return None
-    for split_dir in sorted(base.iterdir()):
-        if not split_dir.is_dir():
-            continue
-        candidate = split_dir / session_id / f"{role}.{TRANSCRIPT_SUFFIX}"
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def build_turn_samples(
-    examples: list[ManifestExample],
-    transcript_root: Path,
-    split: str,
-) -> list[TurnSample]:
-    """Build per-turn samples from role-level manifests and transcript files."""
-
-    groups = _group_by_session(examples)
-    turns: list[TurnSample] = []
-    skipped_sessions = 0
-
-    for session_key, role_map in groups.items():
-        if "novice" not in role_map or "expert" not in role_map:
-            skipped_sessions += 1
-            continue
-
-        novice_ex = role_map["novice"]
-        expert_ex = role_map["expert"]
-        dataset = novice_ex.dataset
-        session_id = novice_ex.session_id
-
-        # Locate transcript files for both roles.
-        novice_transcript_path = _locate_transcript(transcript_root, dataset, session_id, "novice")
-        expert_transcript_path = _locate_transcript(transcript_root, dataset, session_id, "expert")
-        if novice_transcript_path is None or expert_transcript_path is None:
-            skipped_sessions += 1
-            continue
-
-        novice_transcript = read_transcript(novice_transcript_path)
-        expert_transcript = read_transcript(expert_transcript_path)
-
-        # Use the shorter of the two role tensors as session length (same
-        # alignment strategy as the existing dyadic tensor builder).
-        session_len = min(novice_ex.aligned_len, expert_ex.aligned_len)
-        segments = compute_turn_segments(novice_transcript, expert_transcript, session_len)
-
-        for seg in segments:
-            turns.append(
-                TurnSample(
-                    session_id=session_id,
-                    dataset=dataset,
-                    speaker=seg.speaker,
-                    novice_example=novice_ex,
-                    expert_example=expert_ex,
-                    start_frame=seg.start_frame,
-                    end_frame=seg.end_frame,
-                )
-            )
-
-    if skipped_sessions:
-        print(f"[data] skipped {skipped_sessions} sessions (missing role pair or transcripts)", flush=True)
-    print(f"[data] built {len(turns)} turn samples from {len(groups) - skipped_sessions} sessions ({split})", flush=True)
-    return turns
-
-
-# ---------------------------------------------------------------------------
 # Model factory
 # ---------------------------------------------------------------------------
 
@@ -234,16 +131,23 @@ def build_model(args: argparse.Namespace, n_features_per_role: int) -> torch.nn.
         kernel_size=args.kernel_size,
         dropout=args.dropout,
     )
-    if args.model == "partner_lag":
-        return PartnerLagTCNRegressor(**common, partner_lags=tuple(args.partner_lags))
-    if args.model == "gated_pool":
-        return GatedPooledTCNRegressor(**common, partner_pool_frames=args.partner_pool_frames, gate_type=args.gate_type)
+    if args.model == "simple":
+        return IndependentDyadicTCNRegressor(**common)
+    if args.model == "dyadic_shared":
+        return DyadicTCNRegressor(
+            input_dim=2 * n_features_per_role,
+            hidden_channels=args.hidden_channels,
+            levels=args.levels,
+            kernel_size=args.kernel_size,
+            dropout=args.dropout,
+        )
     if args.model == "attention":
         return RoleAttentionTCNRegressor(
             **common,
             attention_context=args.attention_context,
             attention_heads=args.attention_heads,
             attention_past_frames=args.attention_past_frames,
+            exclude_current_frame=args.exclude_current_frame,
         )
     raise ValueError(f"Unknown model type: {args.model}")
 
@@ -380,23 +284,24 @@ def main() -> None:
     device = resolve_device(args.device)
     run_dir = make_run_dir(args)
 
-    # Read role-level manifests (one row per person per session).
-    train_examples = read_model_manifest(args.manifest, PROJECT_ROOT, split=args.train_split)
-    val_examples = read_model_manifest(args.manifest, PROJECT_ROOT, split=args.val_split)
-    if not train_examples or not val_examples:
-        raise RuntimeError("Both train and validation examples are required.")
+    train_turns = read_turn_manifest(args.manifest, PROJECT_ROOT, split=args.train_split)
+    val_turns = read_turn_manifest(args.manifest, PROJECT_ROOT, split=args.val_split)
+    feature_dims = sorted(
+        {
+            turn.novice_example.n_features
+            for turn in train_turns + val_turns
+        }
+        | {
+            turn.expert_example.n_features
+            for turn in train_turns + val_turns
+        }
+    )
 
-    # All examples must share the same feature dimensionality.
-    feature_dims = sorted({ex.n_features for ex in train_examples + val_examples})
+    if not train_turns or not val_turns:
+        raise RuntimeError("Both train and validation turn rows are required.")
     if len(feature_dims) != 1:
         raise RuntimeError(f"Expected one fixed feature dimension, got {feature_dims}")
     n_features_per_role = feature_dims[0]
-
-    # Build turn-based sample lists.
-    train_turns = build_turn_samples(train_examples, args.transcript_root, split=args.train_split)
-    val_turns = build_turn_samples(val_examples, args.transcript_root, split=args.val_split)
-    if not train_turns or not val_turns:
-        raise RuntimeError("No turn samples could be built — check transcript file paths.")
 
     train_dataset = TurnDataset(train_turns, min_frames=args.min_turn_frames)
     val_dataset = TurnDataset(val_turns, min_frames=args.min_turn_frames)

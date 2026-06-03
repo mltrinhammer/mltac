@@ -1,4 +1,18 @@
-#!/usr/bin/env bash
+#!/bin/bash
+
+#SBATCH --job-name=gcm_preprocess
+#SBATCH --output=/home/mlut/mltac/.garbage/gcm_preprocess.out      # Standard output and error log (%j is job ID)
+#SBATCH --error=/home/mlut/mltac/.garbage/gcm_preprocess.err       # Error log
+#SBATCH --time=22:00:00
+#SBATCH --cpus-per-task=64
+#SBATCH --mem=94GB
+#SBATCH --gres=gpu:1
+#SBATCH --exclude=cn19
+
+module load Python/3.11.3-GCCcore-12.3.0
+module load Anaconda3
+source activate sync-opentslm
+
 # Full preprocessing pipeline for all modalities.
 #
 # Runs on HPC from the mltac project root:
@@ -7,7 +21,7 @@
 # Steps per modality:
 #   1. Align features to 25 Hz target grid -> processed NPZ tensors
 #   2. Fit train-only z-score normalizer   -> transformed "raw" tensors
-#   3. Build dyadic (novice+expert) tensors -> dyadic tensors
+#   3. Build paired turn manifests          -> turn-index CSVs for training
 #
 # Prerequisites:
 #   - Data directories (noxi/, noxij/) present in DATA_ROOT
@@ -78,35 +92,37 @@ for fs in "${FEATURE_SETS[@]}"; do
     echo ""
 done
 
-# ---- Step 3: Build dyadic tensors ----
-echo "=== Step 3: Building dyadic tensors ==="
+# ---- Step 3: Build paired turn manifests ----
+echo "=== Step 3: Building paired turn manifests ==="
 for fs in "${FEATURE_SETS[@]}"; do
     INPUT_MANIFEST="${ACM_DIR}/outputs/manifests/model_processed_manifest_${fs}_raw.csv"
-    OUTPUT_MANIFEST="${ACM_DIR}/outputs/manifests/model_processed_manifest_${fs}_raw_dyadic.csv"
+    OUTPUT_MANIFEST="${ACM_DIR}/outputs/manifests/model_processed_manifest_${fs}_raw_turns.csv"
     if [ ! -f "${INPUT_MANIFEST}" ]; then
         echo "  [skip] ${fs} — no transformed manifest found"
         continue
     fi
     if [ -f "${OUTPUT_MANIFEST}" ]; then
-        echo "  [skip] ${fs} — already built (${OUTPUT_MANIFEST})"
+        echo "  [skip] ${fs} — paired turns already built (${OUTPUT_MANIFEST})"
         continue
     fi
     echo "  [run]  ${fs}"
-    python "${SCRIPTS}/noxi_build_dyadic_tensors.py" \
-        --input-manifest "${INPUT_MANIFEST}"
+    python "${SCRIPTS}/noxi_build_turn_manifest.py" \
+        --input-manifest "${INPUT_MANIFEST}" \
+        --transcript-root "${DATA_ROOT}" \
+        --output-manifest "${OUTPUT_MANIFEST}"
     echo ""
 done
 
 echo "=== Preprocessing complete ==="
 echo ""
-echo "Role-level manifests (for simple TCN):"
+echo "Normalized role-level manifests (source tensors for paired turns):"
 for fs in "${FEATURE_SETS[@]}"; do
     m="${ACM_DIR}/outputs/manifests/model_processed_manifest_${fs}_raw.csv"
     [ -f "$m" ] && echo "  ${m}"
 done
 echo ""
-echo "Dyadic manifests (for dyadic/interaction models):"
+echo "Paired turn manifests (active turn-level training inputs):"
 for fs in "${FEATURE_SETS[@]}"; do
-    m="${ACM_DIR}/outputs/manifests/model_processed_manifest_${fs}_raw_dyadic.csv"
+    m="${ACM_DIR}/outputs/manifests/model_processed_manifest_${fs}_raw_turns.csv"
     [ -f "$m" ] && echo "  ${m}"
 done

@@ -7,6 +7,7 @@ custom collate function pads variable-length turns within each batch.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,23 +16,20 @@ import torch
 from torch.utils.data import Dataset
 
 from src.acm_pipeline.data import ManifestExample, SessionTensor, load_session_tensor
-from src.acm_pipeline.turns import TurnSegment
-
-
-ROLE_ORDER = ("novice", "expert")
 
 
 @dataclass(frozen=True)
-class TurnSample:
-    """Metadata for one speech-turn sample."""
+class ManifestTurnSample:
+    """One precomputed paired-turn row listed in a turn manifest."""
 
     session_id: str
     dataset: str
-    speaker: str                # who initiated the turn
+    speaker: str
     novice_example: ManifestExample
     expert_example: ManifestExample
     start_frame: int
     end_frame: int
+    turn_idx: int
 
     @property
     def turn_len(self) -> int:
@@ -40,6 +38,55 @@ class TurnSample:
     @property
     def session_key(self) -> str:
         return f"{self.dataset}/{self.session_id}"
+
+
+def _resolve_tensor_path(project_root: Path, path_text: str) -> Path:
+    path = Path(path_text)
+    return path if path.is_absolute() else project_root / path
+
+
+def read_turn_manifest(manifest_path: Path, project_root: Path, split: str | None = None) -> list[ManifestTurnSample]:
+    """Read a paired turn manifest into turn samples backed by source tensors."""
+
+    turns: list[ManifestTurnSample] = []
+    with manifest_path.open("r", newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if split is not None and row["model_split"] != split:
+                continue
+
+            common = {
+                "dataset": row["dataset"],
+                "session_id": row["session_id"],
+                "model_split": row["model_split"],
+                "feature_set": row.get("feature_set", ""),
+                "transform_method": row.get("transform_method", ""),
+                "n_features": int(row["n_features_per_role"]),
+            }
+            novice_example = ManifestExample(
+                role="novice",
+                tensor_path=_resolve_tensor_path(project_root, row["novice_tensor_relative_path"]),
+                aligned_len=int(row["novice_aligned_len"]),
+                **common,
+            )
+            expert_example = ManifestExample(
+                role="expert",
+                tensor_path=_resolve_tensor_path(project_root, row["expert_tensor_relative_path"]),
+                aligned_len=int(row["expert_aligned_len"]),
+                **common,
+            )
+            turns.append(
+                ManifestTurnSample(
+                    session_id=row["session_id"],
+                    dataset=row["dataset"],
+                    speaker=row["speaker"],
+                    novice_example=novice_example,
+                    expert_example=expert_example,
+                    start_frame=int(row["start_frame"]),
+                    end_frame=int(row["end_frame"]),
+                    turn_idx=int(row["turn_idx"]),
+                )
+            )
+    return turns
 
 
 class TurnDataset(Dataset):
@@ -52,7 +99,7 @@ class TurnDataset(Dataset):
 
     def __init__(
         self,
-        turns: list[TurnSample],
+        turns: list[ManifestTurnSample],
         min_frames: int = 5,
     ) -> None:
         self.turns = [t for t in turns if t.turn_len >= min_frames]

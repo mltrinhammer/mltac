@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import pickle
 from pathlib import Path
 
 import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.random_projection import GaussianRandomProjection
 
 
 class FeatureNormalizer:
@@ -70,72 +67,3 @@ class FeatureNormalizer:
     def load(cls, path: Path) -> "FeatureNormalizer":
         with np.load(path) as data:
             return cls(mean=data["mean"], std=data["std"])
-
-
-def sample_normalized_frames(
-    paths: list[Path],
-    normalizer: FeatureNormalizer,
-    max_frames: int,
-    seed: int,
-) -> np.ndarray:
-    """Sample normalized training frames for fitting dimensionality reducers.
-
-    PCA and random projection do not need every frame for a first pass, and
-    large embedding streams can be expensive. This function caps the fit set in
-    a reproducible way.
-    """
-
-    # Reducers are fit on train frames only. Sampling keeps PCA/random
-    # projection practical for high-dimensional streams such as W2V-BERT2 and
-    # Swin while preserving reproducibility through the fixed seed.
-    rng = np.random.default_rng(seed)
-    chunks: list[np.ndarray] = []
-    remaining = max_frames
-    shuffled = list(paths)
-    rng.shuffle(shuffled)
-
-    for path in shuffled:
-        if remaining <= 0:
-            break
-        with np.load(path, allow_pickle=True) as data:
-            x = normalizer.transform(np.asarray(data["x"], dtype=np.float32))
-        take = min(remaining, len(x))
-        if take < len(x):
-            idx = np.sort(rng.choice(len(x), size=take, replace=False))
-            x = x[idx]
-        chunks.append(x)
-        remaining -= take
-
-    if not chunks:
-        raise ValueError("No frames sampled for reducer fitting.")
-    return np.concatenate(chunks, axis=0)
-
-
-def fit_pca(frames: np.ndarray, n_components: int, seed: int) -> PCA:
-    """Fit randomized PCA on normalized train frames."""
-
-    reducer = PCA(n_components=n_components, svd_solver="randomized", random_state=seed)
-    reducer.fit(frames)
-    return reducer
-
-
-def fit_random_projection(frames: np.ndarray, n_components: int, seed: int) -> GaussianRandomProjection:
-    """Fit a Gaussian random projection reducer.
-
-    The fit mainly validates input shape and stores the random projection matrix.
-    """
-
-    reducer = GaussianRandomProjection(n_components=n_components, random_state=seed)
-    reducer.fit(frames)
-    return reducer
-
-
-def save_pickle(obj: object, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as handle:
-        pickle.dump(obj, handle)
-
-
-def load_pickle(path: Path) -> object:
-    with path.open("rb") as handle:
-        return pickle.load(handle)
