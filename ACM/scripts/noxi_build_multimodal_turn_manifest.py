@@ -88,13 +88,15 @@ def build_multimodal_rows(
     for key in sorted(shared_keys):
         base_row = manifest_rows[feature_sets[0]][key]
         modalities: dict[str, dict[str, object]] = {}
+        session_aligned_lens: list[int] = []
         for feature_set in feature_sets:
             row = manifest_rows[feature_set][key]
-            for field in ("turn_len", "session_aligned_len", "dataset", "session_id", "model_split", "speaker", "start_frame", "end_frame", "turn_idx"):
+            for field in ("turn_len", "dataset", "session_id", "model_split", "speaker", "start_frame", "end_frame", "turn_idx"):
                 if str(row[field]) != str(base_row[field]):
                     raise RuntimeError(
                         f"Join mismatch for feature set {feature_set} and key {key}: field {field!r} differs."
                     )
+            session_aligned_lens.append(int(row["session_aligned_len"]))
             modalities[feature_set] = {
                 "feature_set": row["feature_set"],
                 "transform_method": row.get("transform_method", ""),
@@ -104,6 +106,7 @@ def build_multimodal_rows(
                 "expert_tensor_relative_path": row["expert_tensor_relative_path"],
                 "novice_aligned_len": int(row["novice_aligned_len"]),
                 "expert_aligned_len": int(row["expert_aligned_len"]),
+                "session_aligned_len": int(row["session_aligned_len"]),
             }
 
         multimodal_rows.append(
@@ -118,7 +121,7 @@ def build_multimodal_rows(
                 "start_frame": base_row["start_frame"],
                 "end_frame": base_row["end_frame"],
                 "turn_len": base_row["turn_len"],
-                "session_aligned_len": base_row["session_aligned_len"],
+                "session_aligned_len": min(session_aligned_lens),
                 "modality_order_json": json.dumps(feature_sets),
                 "modalities_json": json.dumps(modalities, sort_keys=True),
             }
