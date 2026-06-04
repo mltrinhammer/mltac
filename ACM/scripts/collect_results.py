@@ -364,8 +364,18 @@ def resolve_turn_backbone(results: dict[tuple[str, str], dict], allow_partial_gr
     max_wins = max(win_counts.values())
     tied_backbones = [model for model, count in win_counts.items() if count == max_wins and count > 0]
     if len(tied_backbones) != 1:
-        tie_text = ", ".join(f"{model}={win_counts[model]}" for model in tied_backbones)
-        raise RuntimeError(f"Backbone resolution tied across models: {tie_text}.")
+        # Break tie by mean CCC across all feature sets.
+        def _mean_ccc(model: str) -> float:
+            cccs = [
+                results[(fs, model)]["ccc"]
+                for fs in FEATURE_ORDER
+                if (fs, model) in results and is_finite(results[(fs, model)]["ccc"])
+            ]
+            return sum(cccs) / len(cccs) if cccs else float("-inf")
+
+        tied_backbones.sort(key=_mean_ccc, reverse=True)
+        tie_text = ", ".join(f"{m}={win_counts[m]} (mean={_mean_ccc(m):.4f})" for m in tied_backbones)
+        print(f"NOTE: Backbone vote tied: {tie_text}. Breaking by mean CCC → {tied_backbones[0]}.")
 
     backbone_model = tied_backbones[0]
     representatives: dict[str, dict[str, object]] = {}
