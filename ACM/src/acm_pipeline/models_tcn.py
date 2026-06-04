@@ -285,3 +285,182 @@ class RoleAttentionTCNRegressor(nn.Module):
             "novice_sources": novice_sources,
             "expert_sources": expert_sources,
         }
+
+
+class RoleWiseMultimodalFusion(nn.Module):
+    """Project and fuse multiple modalities for novice and expert separately."""
+
+    def __init__(
+        self,
+        modality_dims: dict[str, int],
+        d_shared: int,
+        fusion_mode: str = "gated",
+        modality_dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        if not modality_dims:
+            raise ValueError("modality_dims must not be empty.")
+        if fusion_mode not in {"gated", "concat"}:
+            raise ValueError(f"Unsupported fusion_mode: {fusion_mode}")
+        if modality_dropout < 0.0 or modality_dropout >= 1.0:
+            raise ValueError("modality_dropout must be in [0, 1).")
+
+        self.modality_order = tuple(modality_dims.keys())
+        self.modality_dims = dict(modality_dims)
+        self.d_shared = d_shared
+        self.fusion_mode = fusion_mode
+        self.modality_dropout = modality_dropout
+
+        gate_hidden = max(1, d_shared // 2)
+        self.projections = nn.ModuleDict(
+            {
+                name: nn.Linear(input_dim, d_shared)
+                for name, input_dim in self.modality_dims.items()
+            }
+        )
+        self.gates = nn.ModuleDict(
+            {
+                name: nn.Sequential(
+                    nn.Linear(d_shared, gate_hidden),
+                    nn.ReLU(),
+                    nn.Linear(gate_hidden, 1),
+                )
+                for name in self.modality_order
+            }
+        )
+
+    @property
+    def fused_features_per_role(self) -> int:
+        if self.fusion_mode == "gated":
+            return self.d_shared
+        return self.d_shared * len(self.modality_order)
+
+    def _sample_keep_mask(self, device: torch.device) -> torch.Tensor | None:
+        if not self.training or self.modality_dropout <= 0.0 or len(self.modality_order) <= 1:
+            return None
+        keep = torch.rand(len(self.modality_order), device=device) >= self.modality_dropout
+        if not torch.any(keep):
+            keep[torch.randint(len(self.modality_order), size=(1,), device=device)] = True
+        return keep
+
+    def _fuse_projected(
+        self,
+        projected: list[torch.Tensor],
+        keep_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        if keep_mask is not None:
+            projected = [feature if bool(keep_mask[idx].item()) else torch.zeros_like(feature) for idx, feature in enumerate(projected)]
+
+        if self.fusion_mode == "concat":
+            return torch.cat(projected, dim=-1).transpose(1, 2), None
+
+        logits = torch.cat(
+            [self.gates[name](feature) for name, feature in zip(self.modality_order, projected)],
+            dim=-1,
+        )
+        if keep_mask is not None:
+            logits = logits.masked_fill(~keep_mask.view(1, 1, -1), -1e9)
+        weights = torch.softmax(logits, dim=-1)
+        fused = sum(weights[..., idx : idx + 1] * feature for idx, feature in enumerate(projected))
+        return fused.transpose(1, 2), weights
+
+    def forward(self, x_modalities: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, object]]:
+        novice_projected: list[torch.Tensor] = []
+        expert_projected: list[torch.Tensor] = []
+
+        first_device: torch.device | None = None
+        for modality_name in self.modality_order:
+            x = x_modalities[modality_name]
+            if first_device is None:
+                first_device = x.device
+            expected_dim = self.modality_dims[modality_name]
+            if x.shape[1] != 2 * expected_dim:
+                raise ValueError(
+                    f"Modality {modality_name!r} expected {2 * expected_dim} channels, got {x.shape[1]}"
+                )
+            novice_x = x[:, :expected_dim].transpose(1, 2)
+            expert_x = x[:, expected_dim:].transpose(1, 2)
+            novice_projected.append(self.projections[modality_name](novice_x))
+            expert_projected.append(self.projections[modality_name](expert_x))
+
+        assert first_device is not None
+        keep_mask = self._sample_keep_mask(first_device)
+        novice_fused, novice_weights = self._fuse_projected(novice_projected, keep_mask)
+        expert_fused, expert_weights = self._fuse_projected(expert_projected, keep_mask)
+        fused = torch.cat([novice_fused, expert_fused], dim=1)
+        return fused, {
+            "modality_order": list(self.modality_order),
+            "fusion_mode": self.fusion_mode,
+            "novice_weights": novice_weights,
+            "expert_weights": expert_weights,
+        }
+
+
+class MultimodalTurnTCNRegressor(nn.Module):
+    """Winner-backbone multimodal wrapper over the existing TCN variants."""
+
+    def __init__(
+        self,
+        modality_dims: dict[str, int],
+        backbone_model: str,
+        fusion_channels: int = 64,
+        fusion_mode: str = "gated",
+        modality_dropout: float = 0.0,
+        hidden_channels: int = 64,
+        levels: int = 4,
+        kernel_size: int = 5,
+        dropout: float = 0.2,
+        attention_context: str = "joint",
+        attention_heads: int = 4,
+        attention_past_frames: int | None = 1500,
+        exclude_current_frame: bool = False,
+    ) -> None:
+        super().__init__()
+        if backbone_model not in {"simple", "dyadic_shared", "attention"}:
+            raise ValueError(f"Unsupported backbone_model: {backbone_model}")
+
+        self.backbone_model = backbone_model
+        self.fusion = RoleWiseMultimodalFusion(
+            modality_dims=modality_dims,
+            d_shared=fusion_channels,
+            fusion_mode=fusion_mode,
+            modality_dropout=modality_dropout,
+        )
+
+        fused_features_per_role = self.fusion.fused_features_per_role
+        common = dict(
+            n_features_per_role=fused_features_per_role,
+            hidden_channels=hidden_channels,
+            levels=levels,
+            kernel_size=kernel_size,
+            dropout=dropout,
+        )
+        if backbone_model == "simple":
+            self.backbone: nn.Module = IndependentDyadicTCNRegressor(**common)
+        elif backbone_model == "dyadic_shared":
+            self.backbone = DyadicTCNRegressor(
+                input_dim=2 * fused_features_per_role,
+                hidden_channels=hidden_channels,
+                levels=levels,
+                kernel_size=kernel_size,
+                dropout=dropout,
+            )
+        else:
+            self.backbone = RoleAttentionTCNRegressor(
+                **common,
+                attention_context=attention_context,
+                attention_heads=attention_heads,
+                attention_past_frames=attention_past_frames,
+                exclude_current_frame=exclude_current_frame,
+            )
+
+    def forward(
+        self,
+        x_modalities: dict[str, torch.Tensor],
+        return_gate_weights: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, object]]:
+        fused_x, fusion_info = self.fusion(x_modalities)
+        pred = self.backbone(fused_x)
+        if not return_gate_weights:
+            return pred
+        return pred, fusion_info

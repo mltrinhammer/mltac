@@ -130,3 +130,36 @@ def compute_turn_segments(
             segments.append(TurnSegment(speaker=role, start_frame=start_frame, end_frame=end_frame))
 
     return segments
+
+
+def compute_window_segments(
+    session_len_frames: int,
+    window_size: int = 500,
+    stride: int = 125,
+) -> list[TurnSegment]:
+    """Generate fixed-window intervals that cover the full session timeline.
+
+    Windows follow the legacy sliding-window settings by default. When the
+    session length is not an exact multiple of the stride, a final end-anchored
+    window is appended so validation reconstruction still covers the tail.
+    """
+
+    if window_size <= 0:
+        raise ValueError("window_size must be positive.")
+    if stride <= 0:
+        raise ValueError("stride must be positive.")
+    if session_len_frames <= 0:
+        return []
+
+    if session_len_frames <= window_size:
+        return [TurnSegment(speaker="both", start_frame=0, end_frame=session_len_frames)]
+
+    starts = list(range(0, session_len_frames - window_size + 1, stride))
+    tail_start = session_len_frames - window_size
+    if starts[-1] != tail_start:
+        starts.append(tail_start)
+
+    return [
+        TurnSegment(speaker="both", start_frame=start_frame, end_frame=start_frame + window_size)
+        for start_frame in starts
+    ]

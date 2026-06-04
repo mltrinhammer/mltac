@@ -23,7 +23,7 @@ class ManifestExample:
 
     @property
     def key(self) -> str:
-        return f"{self.dataset}/{self.session_id}/{self.role}"
+        return f"{self.dataset}/{self.session_id}/{self.role}/{self.feature_set}"
 
 
 @dataclass

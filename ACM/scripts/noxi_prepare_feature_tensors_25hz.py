@@ -93,16 +93,25 @@ def process_row(
     }
 
     target_rel = row.get("target_relative_path", "")
-    target_path = local_cache_path(cache_root, dataset, target_rel)
-    if not target_path.exists():
-        status.update({"status": "skipped", "reason": f"missing_target:{target_rel}"})
-        return None, status
-
-    # Targets are kept as two arrays: a NaN-filled raw target becomes y with
-    # NaNs replaced by zero, while target_mask records which frames are valid.
-    y_raw = read_target(target_path)
-    target_mask = np.isfinite(y_raw).astype(np.float32)
-    y = np.nan_to_num(y_raw, nan=0.0).astype(np.float32)
+    has_target = bool(target_rel)
+    if has_target:
+        target_path = local_cache_path(cache_root, dataset, target_rel)
+        if not target_path.exists():
+            status.update({"status": "skipped", "reason": f"missing_target:{target_rel}"})
+            return None, status
+        # Targets are kept as two arrays: a NaN-filled raw target becomes y
+        # with NaNs replaced by zero, while target_mask records valid frames.
+        y_raw = read_target(target_path)
+        target_mask = np.isfinite(y_raw).astype(np.float32)
+        y = np.nan_to_num(y_raw, nan=0.0).astype(np.float32)
+        reference_len = len(y)
+    else:
+        # Test session without engagement labels. We read streams first and
+        # derive the reference length from their frame counts afterwards.
+        y_raw = None
+        y = None
+        target_mask = None
+        reference_len = None
 
     # Look up all streams for this dataset/session/role and collect the subset
     # required by the requested feature-set registry entry.
@@ -114,6 +123,7 @@ def process_row(
     alignment_methods: list[str] = []
     missing_streams: list[str] = []
     stream_lengths: list[int] = []
+    raw_stream_lengths: list[int] = []
 
     for stream_name in required_streams:
         # A missing stream means the example cannot be used for this full
@@ -127,11 +137,19 @@ def process_row(
         if not header_path.exists() or not binary_path.exists():
             missing_streams.append(stream_name)
             continue
-        # Each stream is read independently and aligned to the target length
-        # before concatenation. This keeps multi-stream feature sets such as
-        # OpenFace2 + OpenFace3 on one shared frame grid.
         mat, sr, dim = read_stream_matrix(header_path, binary_path)
-        aligned, method = align_to_target_grid(mat, sr, len(y))
+        raw_stream_lengths.append(len(mat))
+
+        if reference_len is not None:
+            # Each stream is read independently and aligned to the target
+            # length before concatenation.
+            aligned, method = align_to_target_grid(mat, sr, reference_len)
+        else:
+            # No target to align against — keep the stream at its native
+            # length and record it for later min-length determination.
+            aligned = mat.astype(np.float32, copy=False)
+            method = "native_no_target"
+
         if len(aligned) == 0:
             missing_streams.append(stream_name)
             continue
@@ -148,12 +166,22 @@ def process_row(
             status.update({"status": "skipped", "reason": "missing_required_streams"})
             return None, status
 
-    # Concatenate streams after alignment. If streams differ slightly in length,
-    # use the shared prefix so x, y, and target_mask have identical frame counts.
-    aligned_len = min([len(y), *stream_lengths])
+    # Concatenate streams after alignment. If streams differ slightly in
+    # length, use the shared prefix so x, y, and target_mask are identical.
+    if has_target:
+        aligned_len = min([len(y), *stream_lengths])
+        y_out = y[:aligned_len]
+        mask_out = target_mask[:aligned_len]
+        target_n_values = len(y_raw)
+    else:
+        # Test session: derive aligned_len from the minimum stream length and
+        # fill dummy y / target_mask so the NPZ schema stays identical.
+        aligned_len = min(stream_lengths)
+        y_out = np.zeros(aligned_len, dtype=np.float32)
+        mask_out = np.zeros(aligned_len, dtype=np.float32)
+        target_n_values = 0
+
     x = np.concatenate([part[:aligned_len] for part in x_parts], axis=1).astype(np.float32, copy=False)
-    y_out = y[:aligned_len]
-    mask_out = target_mask[:aligned_len]
 
     out_dir = out_root / dataset / session_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -188,10 +216,10 @@ def process_row(
         "stream_alignment_methods": ";".join(alignment_methods),
         "n_features": str(x.shape[1]),
         "aligned_len": str(aligned_len),
-        "target_n_values": str(len(y_raw)),
+        "target_n_values": str(target_n_values),
         "target_valid_count": str(int(mask_out.sum())),
         "target_nan_count": str(int((1.0 - mask_out).sum())),
-        "dropped_target_tail_frames": str(max(0, len(y_raw) - aligned_len)),
+        "dropped_target_tail_frames": str(max(0, target_n_values - aligned_len)),
     }
     status.update(
         {

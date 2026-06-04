@@ -10,6 +10,15 @@ from src.acm_pipeline.metrics import RegressionMetrics, regression_metrics
 
 ROLE_ORDER = ("novice", "expert")
 
+DATASET_SUBMISSION_DIRS = {
+    ("noxi", "test_internal"): "noxi-base",
+    ("noxi", "test_additional"): "noxi-additional",
+    ("noxij", "test_internal"): "noxi-j",
+    ("noxij", "test"): "noxi-j",
+    ("mpiigroupinteraction", "test_internal"): "mpiigroupinteraction",
+    ("mpiigroupinteraction", "test"): "mpiigroupinteraction",
+}
+
 
 def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,4 +113,70 @@ def write_dyadic_prediction_csv(path: Path, reconstructed: list[dict[str, object
                             "covered": float(covered[frame_idx]),
                         }
                     )
+
+
+def submission_dataset_dir(dataset: str, model_split: str | None) -> str:
+    """Map internal dataset/split names onto organizer submission folders."""
+
+    split = model_split or ""
+    mapped = DATASET_SUBMISSION_DIRS.get((dataset, split))
+    if mapped is not None:
+        return mapped
+    if dataset == "noxi":
+        if split:
+            return f"noxi-{split}"
+        return "noxi"
+    if dataset == "noxij":
+        return "noxi-j"
+    return dataset
+
+
+def prediction_filename_for_role(role_name: str) -> str:
+    """Return the organizer submission filename for one role/channel."""
+
+    return f"{role_name}.engagement.prediction.csv"
+
+
+def write_organizer_submission_tree(output_dir: Path, reconstructed: list[dict[str, object]]) -> None:
+    """Write session-wise organizer-format prediction CSVs.
+
+    The exported tree matches the ACM MultiMediate submission layout for test
+    splits and falls back to split-qualified dataset folder names for internal
+    train/validation runs so the same exporter remains usable during local
+    validation.
+    """
+
+    for item in reconstructed:
+        example = item["example"]
+        y_pred = item["y_pred"]
+        covered = item["covered"]
+        assert isinstance(y_pred, np.ndarray)
+        assert isinstance(covered, np.ndarray)
+
+        role_names = tuple(getattr(example, "role_names", ROLE_ORDER))
+        if y_pred.ndim != 2:
+            raise ValueError(f"Expected y_pred to have shape [time, channels], got {y_pred.shape}")
+        if len(role_names) != y_pred.shape[1]:
+            raise ValueError(
+                f"Role name count does not match prediction channels for {example.dataset}/{example.session_id}: "
+                f"{len(role_names)} vs {y_pred.shape[1]}"
+            )
+
+        dataset_dir = submission_dataset_dir(example.dataset, getattr(example, "model_split", None))
+        session_dir = output_dir / dataset_dir / str(example.session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        for channel, role_name in enumerate(role_names):
+            file_path = session_dir / prediction_filename_for_role(role_name)
+            with file_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                for frame_idx in range(y_pred.shape[0]):
+                    pred_val = y_pred[frame_idx, channel]
+                    if not float(covered[frame_idx]):
+                        pred_text = ""
+                    elif np.isnan(pred_val):
+                        pred_text = ""
+                    else:
+                        pred_text = f"{float(pred_val):.10f}"
+                    writer.writerow([pred_text])
 

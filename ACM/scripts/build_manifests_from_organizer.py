@@ -164,13 +164,15 @@ def main() -> None:
                 session_dir = split_dir / session_id
 
                 for role in ROLES:
-                    # Check for engagement annotation (required).
+                    # Use engagement annotation when available; test
+                    # sessions may lack labels — an empty path signals
+                    # "no supervision" to downstream preprocessing.
                     target_file = session_dir / f"{role}.{TARGET_SUFFIX}"
-                    if not target_file.exists():
-                        continue
-
-                    # Relative path from the cache dataset root.
-                    target_rel = f"{split_dirname}/{session_id}/{role}.{TARGET_SUFFIX}"
+                    target_rel = (
+                        f"{split_dirname}/{session_id}/{role}.{TARGET_SUFFIX}"
+                        if target_file.exists()
+                        else ""
+                    )
 
                     manifest_rows.append(
                         {

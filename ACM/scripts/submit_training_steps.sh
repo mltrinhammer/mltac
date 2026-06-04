@@ -8,11 +8,13 @@ TRAIN_SCRIPT="${ACM_DIR}/scripts/run_training.sh"
 LOG_DIR="${LOG_DIR:-/home/mlut/mltac/.garbage}"
 DRY_RUN="${DRY_RUN:-0}"
 
-ALL_STEPS=(1 2 3)
+ALL_STEPS=(1 2 3 4 5)
 declare -A STEP_LABELS=(
     [1]="turns_simple_tcn"
     [2]="turns_dyadic_shared"
     [3]="turns_attention"
+    [4]="turns_multimodal_winner"
+    [5]="windows_winner"
 )
 declare -A VALID_STEPS=()
 for step in "${ALL_STEPS[@]}"; do
@@ -101,6 +103,7 @@ preprocess_error_path="${LOG_DIR}/${preprocess_job_name}.%j.err"
 preprocess_cmd=(
     sbatch
     --parsable
+    --export "ALL,INCLUDE_MULTIMODAL_ABLATION=$([ -n "${SELECTED_STEP_MAP[4]+x}" ] && echo 1 || echo 0),INCLUDE_WINDOW_ABLATION=$([ -n "${SELECTED_STEP_MAP[5]+x}" ] && echo 1 || echo 0)"
     --job-name "${preprocess_job_name}"
     --output "${preprocess_output_path}"
     --error "${preprocess_error_path}"
@@ -135,14 +138,52 @@ else
 fi
 echo ""
 
-for step in "${SELECTED_STEPS[@]}"; do
+declare -A STEP_JOB_IDS=()
+
+for step in "${ALL_STEPS[@]}"; do
+    if [ -z "${SELECTED_STEP_MAP[${step}]+x}" ]; then
+        continue
+    fi
+
     label="${STEP_LABELS[${step}]}"
     job_name="gcm_s${step}_${label}"
     output_path="${LOG_DIR}/${job_name}.%j.out"
     error_path="${LOG_DIR}/${job_name}.%j.err"
+    dependency_job_ids=()
+    if [ "${step}" -ge 4 ]; then
+        if [ "${DRY_RUN}" = "1" ]; then
+            dependency_job_ids+=("<preprocess_job_id>")
+        else
+            dependency_job_ids+=("${preprocess_job_id}")
+        fi
+        for dep_step in 1 2 3; do
+            if [ -n "${SELECTED_STEP_MAP[${dep_step}]+x}" ]; then
+                if [ "${DRY_RUN}" = "1" ]; then
+                    dependency_job_ids+=("<step_${dep_step}_job_id>")
+                else
+                    dependency_job_ids+=("${STEP_JOB_IDS[${dep_step}]:-missing}")
+                fi
+            fi
+        done
+    else
+        if [ "${DRY_RUN}" = "1" ]; then
+            dependency_job_ids+=("<preprocess_job_id>")
+        else
+            dependency_job_ids+=("${preprocess_job_id}")
+        fi
+    fi
+
+    dependency_string="afterok:${dependency_job_ids[0]}"
+    dep_id=""
+    for dep_id in "${dependency_job_ids[@]:1}"; do
+        dependency_string+=":${dep_id}"
+    done
+
     cmd=(
         sbatch
-        --dependency "${preprocess_dependency}"
+        --parsable
+        --dependency "${dependency_string}"
+        --export ALL
         --job-name "${job_name}"
         --output "${output_path}"
         --error "${error_path}"
@@ -159,5 +200,12 @@ for step in "${SELECTED_STEPS[@]}"; do
     fi
 
     echo "[submit] step ${step} (${label})"
-    "${cmd[@]}"
+    submit_output="$("${cmd[@]}")"
+    step_job_id="${submit_output%%;*}"
+    if [ -z "${step_job_id}" ]; then
+        echo "Failed to parse job ID from sbatch output: ${submit_output}" >&2
+        exit 1
+    fi
+    STEP_JOB_IDS["${step}"]="${step_job_id}"
+    echo "         job_id=${step_job_id}"
 done

@@ -36,7 +36,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.acm_pipeline.dyadic_train_utils import grouped_dyadic_metric_outputs, write_csv, write_dyadic_prediction_csv
+from src.acm_pipeline.dyadic_train_utils import (
+    grouped_dyadic_metric_outputs,
+    write_csv,
+    write_dyadic_prediction_csv,
+    write_organizer_submission_tree,
+)
 from src.acm_pipeline.metrics import ccc_loss, masked_mse_loss
 from src.acm_pipeline.models_tcn import (
     DyadicTCNRegressor,
@@ -59,6 +64,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-name", default="")
     parser.add_argument("--train-split", default="train_internal")
     parser.add_argument("--val-split", default="val_internal")
+    parser.add_argument("--test-splits", nargs="*", default=["test_internal", "test_additional"],
+                        help="Splits to run test inference on after training.")
 
     # Model
     parser.add_argument("--model", choices=["simple", "dyadic_shared", "attention"], default="attention")
@@ -206,6 +213,7 @@ def reconstruct_validation(
                 "expert_example": turn.expert_example,
                 "dataset": turn.dataset,
                 "session_id": turn.session_id,
+                "model_split": turn.novice_example.model_split,
             }
 
     # Pre-allocate per-session prediction and count buffers.
@@ -250,7 +258,11 @@ def reconstruct_validation(
 
         # grouped_dyadic_metric_outputs expects example.dataset and
         # example.session_id — we create a lightweight stand-in.
-        example_stub = _SessionStub(dataset=info["dataset"], session_id=info["session_id"])
+        example_stub = _SessionStub(
+            dataset=info["dataset"],
+            session_id=info["session_id"],
+            model_split=info["model_split"],
+        )
         reconstructed.append({
             "example": example_stub,
             "y_true": y_true,
@@ -265,9 +277,11 @@ def reconstruct_validation(
 class _SessionStub:
     """Lightweight stand-in for DyadicManifestExample used by metric utilities."""
 
-    def __init__(self, dataset: str, session_id: str) -> None:
+    def __init__(self, dataset: str, session_id: str, model_split: str, role_names: tuple[str, ...] = ("novice", "expert")) -> None:
         self.dataset = dataset
         self.session_id = session_id
+        self.model_split = model_split
+        self.role_names = role_names
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +404,27 @@ def main() -> None:
         reconstructed = reconstruct_validation(model, val_dataset, val_loader, device)
         grouped_dyadic_metric_outputs(run_dir, reconstructed)
         write_dyadic_prediction_csv(run_dir / "val_predictions.csv", reconstructed)
+        write_organizer_submission_tree(run_dir / "val_submission_format", reconstructed)
+
+        # Test-split inference: generate submission-format predictions for
+        # held-out test sessions (labels withheld by organizers).
+        for test_split in (args.test_splits or []):
+            test_turns = read_turn_manifest(args.manifest, PROJECT_ROOT, split=test_split)
+            if not test_turns:
+                continue
+            test_dataset = TurnDataset(test_turns, min_frames=args.min_turn_frames)
+            if len(test_dataset) == 0:
+                continue
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                collate_fn=turn_collate_fn,
+            )
+            test_reconstructed = reconstruct_validation(model, test_dataset, test_loader, device)
+            write_organizer_submission_tree(run_dir / "test_submission_format", test_reconstructed)
+            print(f"test_split={test_split}  sessions={len(test_reconstructed)}", flush=True)
 
     print(f"Run directory: {run_dir}", flush=True)
 

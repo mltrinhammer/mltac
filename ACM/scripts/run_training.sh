@@ -9,10 +9,6 @@
 #SBATCH --gres=gpu:1
 #SBATCH --exclude=cn19
 
-#module load Python/3.11.3-GCCcore-12.3.0
-module load Anaconda3
-source activate sync-opentslm
-
 # Usage (from mltac project root or inside the SLURM job):
 #   bash ACM/scripts/run_training.sh
 #   bash ACM/scripts/run_training.sh 1 2 3
@@ -27,13 +23,56 @@ source activate sync-opentslm
 
 set -euo pipefail
 
+if type module >/dev/null 2>&1; then
+    module load Python/3.11.3-GCCcore-12.3.0
+    module load Anaconda3
+fi
+if type conda >/dev/null 2>&1 || [ -n "${CONDA_EXE:-}" ]; then
+    source activate sync-opentslm
+fi
+
+resolve_python_bin() {
+    if [ -n "${PYTHON_BIN:-}" ] && command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+        echo "${PYTHON_BIN}"
+        return 0
+    fi
+    if command -v python >/dev/null 2>&1; then
+        echo python
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        echo python3
+        return 0
+    fi
+    if command -v py.exe >/dev/null 2>&1; then
+        echo py.exe
+        return 0
+    fi
+    if command -v py >/dev/null 2>&1; then
+        echo py
+        return 0
+    fi
+    return 1
+}
+
 ACM_DIR="${ACM_DIR:-$(pwd)/ACM}"
 SCRIPTS="${ACM_DIR}/scripts"
 MANIFESTS="${ACM_DIR}/outputs/manifests"
 EXPERIMENTS="${ACM_DIR}/outputs/experiments"
 DRY_RUN="${DRY_RUN:-0}"
+AUTO_SELECT_TURN_BACKBONE="${AUTO_SELECT_TURN_BACKBONE:-1}"
+ALLOW_PARTIAL_BACKBONE_GRID="${ALLOW_PARTIAL_BACKBONE_GRID:-0}"
+TURN_BACKBONE_TRAINER_MODEL="${TURN_BACKBONE_TRAINER_MODEL:-}"
+BEST_AUDIO_FEATURE_SET="${BEST_AUDIO_FEATURE_SET:-}"
+BEST_TEXT_FEATURE_SET="${BEST_TEXT_FEATURE_SET:-}"
+BEST_VISUAL_FEATURE_SET="${BEST_VISUAL_FEATURE_SET:-}"
+FUSION_MODE="${FUSION_MODE:-gated}"
+FUSION_CHANNELS="${FUSION_CHANNELS:-64}"
+MODALITY_DROPOUT="${MODALITY_DROPOUT:-0.1}"
+INCLUDE_CONCAT_BASELINE="${INCLUDE_CONCAT_BASELINE:-0}"
+PYTHON_BIN="$(resolve_python_bin)"
 
-ALL_STEPS=(1 2 3)
+ALL_STEPS=(1 2 3 4 5)
 declare -A VALID_STEPS=()
 for step in "${ALL_STEPS[@]}"; do
     VALID_STEPS["${step}"]=1
@@ -97,6 +136,138 @@ DROPOUT=0.2
 CCC_WEIGHT=0.5
 BATCH=32
 
+resolve_turn_backbone_selection() {
+    if [ -n "${TURN_BACKBONE_TRAINER_MODEL}" ] \
+        && [ -n "${BEST_AUDIO_FEATURE_SET}" ] \
+        && [ -n "${BEST_TEXT_FEATURE_SET}" ] \
+        && [ -n "${BEST_VISUAL_FEATURE_SET}" ]; then
+        return 0
+    fi
+
+    if [ "${AUTO_SELECT_TURN_BACKBONE}" != "1" ]; then
+        echo "Automatic backbone selection disabled, but one or more selection variables are missing." >&2
+        echo "Required: TURN_BACKBONE_TRAINER_MODEL, BEST_AUDIO_FEATURE_SET, BEST_TEXT_FEATURE_SET, BEST_VISUAL_FEATURE_SET" >&2
+        exit 1
+    fi
+
+    local resolver_cmd=(
+        "${PYTHON_BIN}" "${SCRIPTS}/collect_results.py"
+        --experiments-dir "${EXPERIMENTS}"
+        --resolve-turn-backbone
+        --selection-format env
+    )
+    if [ "${ALLOW_PARTIAL_BACKBONE_GRID}" = "1" ]; then
+        resolver_cmd+=(--allow-partial-grid)
+    fi
+
+    while IFS='=' read -r key value; do
+        case "${key}" in
+            TURN_BACKBONE_TRAINER_MODEL|BEST_AUDIO_FEATURE_SET|BEST_TEXT_FEATURE_SET|BEST_VISUAL_FEATURE_SET)
+                printf -v "${key}" '%s' "${value}"
+                export "${key}"
+                ;;
+        esac
+    done < <("${resolver_cmd[@]}")
+
+    if [ -z "${TURN_BACKBONE_TRAINER_MODEL}" ] \
+        || [ -z "${BEST_AUDIO_FEATURE_SET}" ] \
+        || [ -z "${BEST_TEXT_FEATURE_SET}" ] \
+        || [ -z "${BEST_VISUAL_FEATURE_SET}" ]; then
+        echo "Failed to resolve winner backbone or representative feature sets." >&2
+        exit 1
+    fi
+}
+
+combo_name_from_parts() {
+    local parts=("$@")
+    local joined="${parts[0]}"
+    local part
+    for part in "${parts[@]:1}"; do
+        joined+="__${part}"
+    done
+    echo "${joined}"
+}
+
+build_multimodal_manifest_if_needed() {
+    local combo_name="$1"
+    local source_suffix="$2"
+    local output_suffix="$3"
+    shift 3
+    local feature_sets=("$@")
+    local output_manifest="${MANIFESTS}/model_processed_manifest_${combo_name}_${output_suffix}.csv"
+    local input_manifests=()
+    local fs=""
+
+    for fs in "${feature_sets[@]}"; do
+        local input_manifest="${MANIFESTS}/model_processed_manifest_${fs}_${source_suffix}.csv"
+        if [ ! -f "${input_manifest}" ] && [ "${source_suffix}" = "raw_windows" ]; then
+            build_window_manifest_if_needed "${fs}" || true
+        fi
+        if [ ! -f "${input_manifest}" ]; then
+            echo "  [skip] ${combo_name} — missing source interval manifest ${input_manifest}"
+            return 1
+        fi
+        input_manifests+=("${input_manifest}")
+    done
+
+    if [ -f "${output_manifest}" ]; then
+        return 0
+    fi
+
+    local cmd=(
+        "${PYTHON_BIN}" "${SCRIPTS}/noxi_build_multimodal_turn_manifest.py"
+        --input-manifests "${input_manifests[@]}"
+        --output-manifest "${output_manifest}"
+        --combo-name "${combo_name}"
+    )
+    if [ "${DRY_RUN}" = "1" ]; then
+        echo "  [dry]  ${combo_name} multimodal manifest (${output_suffix})"
+        printf '         '
+        printf '%q ' "${cmd[@]}"
+        echo ""
+        echo ""
+        return 0
+    fi
+
+    echo "  [prep] ${combo_name} multimodal manifest (${output_suffix})"
+    "${cmd[@]}"
+    echo ""
+    return 0
+}
+
+build_window_manifest_if_needed() {
+    local feature_set="$1"
+    local input_manifest="${MANIFESTS}/model_processed_manifest_${feature_set}_raw.csv"
+    local output_manifest="${MANIFESTS}/model_processed_manifest_${feature_set}_raw_windows.csv"
+
+    if [ ! -f "${input_manifest}" ]; then
+        echo "  [skip] ${feature_set} — missing source raw manifest ${input_manifest}"
+        return 1
+    fi
+    if [ -f "${output_manifest}" ]; then
+        return 0
+    fi
+
+    local cmd=(
+        "${PYTHON_BIN}" "${SCRIPTS}/noxi_build_window_manifest.py"
+        --input-manifest "${input_manifest}"
+        --output-manifest "${output_manifest}"
+    )
+    if [ "${DRY_RUN}" = "1" ]; then
+        echo "  [dry]  ${feature_set} window manifest"
+        printf '         '
+        printf '%q ' "${cmd[@]}"
+        echo ""
+        echo ""
+        return 0
+    fi
+
+    echo "  [prep] ${feature_set} window manifest"
+    "${cmd[@]}"
+    echo ""
+    return 0
+}
+
 echo "=== ACM Training Pipeline ==="
 echo "ACM_DIR:         ${ACM_DIR}"
 echo "EPOCHS:          ${EPOCHS}"
@@ -152,6 +323,13 @@ turn_common_args() {
          "--ccc-weight ${CCC_WEIGHT} --batch-size ${BATCH}"
 }
 
+attention_args_for_model() {
+    local model_name="$1"
+    if [ "${model_name}" = "attention" ]; then
+        echo "--attention-context joint --attention-past-frames 1500 --exclude-current-frame"
+    fi
+}
+
 # =====================================================================
 # Model Ladder Step 1: Turn-level Simple TCN (independent per person)
 # =====================================================================
@@ -161,7 +339,7 @@ if should_run_step 1; then
         manifest="${MANIFESTS}/model_processed_manifest_${fs}_raw_turns.csv"
         [ ! -f "${manifest}" ] && echo "  [skip] ${fs} — no paired turn manifest" && continue
         run_if_needed "${fs}_turns_simple_tcn" \
-            python "${SCRIPTS}/train_tcn_turns.py" \
+            "${PYTHON_BIN}" "${SCRIPTS}/train_tcn_turns.py" \
             --manifest "${manifest}" \
             --model simple \
             $(turn_common_args)
@@ -177,7 +355,7 @@ if should_run_step 2; then
         manifest="${MANIFESTS}/model_processed_manifest_${fs}_raw_turns.csv"
         [ ! -f "${manifest}" ] && echo "  [skip] ${fs} — no paired turn manifest" && continue
         run_if_needed "${fs}_turns_dyadic_shared" \
-            python "${SCRIPTS}/train_tcn_turns.py" \
+            "${PYTHON_BIN}" "${SCRIPTS}/train_tcn_turns.py" \
             --manifest "${manifest}" \
             --model dyadic_shared \
             $(turn_common_args)
@@ -193,13 +371,109 @@ if should_run_step 3; then
         manifest="${MANIFESTS}/model_processed_manifest_${fs}_raw_turns.csv"
         [ ! -f "${manifest}" ] && echo "  [skip] ${fs} — no paired turn manifest" && continue
         run_if_needed "${fs}_turns_attention" \
-            python "${SCRIPTS}/train_tcn_turns.py" \
+            "${PYTHON_BIN}" "${SCRIPTS}/train_tcn_turns.py" \
             --manifest "${manifest}" \
             --model attention \
             --attention-context joint \
             --attention-past-frames 1500 \
             --exclude-current-frame \
             $(turn_common_args)
+    done
+fi
+
+# =====================================================================
+# Model Ladder Step 4: Winner-only multimodal fusion
+# =====================================================================
+if should_run_step 4; then
+    resolve_turn_backbone_selection
+    echo "=== Step 4: Winner-only multimodal fusion (${TURN_BACKBONE_TRAINER_MODEL}) ==="
+    echo "AUDIO:  ${BEST_AUDIO_FEATURE_SET}"
+    echo "TEXT:   ${BEST_TEXT_FEATURE_SET}"
+    echo "VISUAL: ${BEST_VISUAL_FEATURE_SET}"
+
+    FUSION_MODES=("${FUSION_MODE}")
+    if [ "${INCLUDE_CONCAT_BASELINE}" = "1" ] && [ "${FUSION_MODE}" != "concat" ]; then
+        FUSION_MODES=("concat" "${FUSION_MODE}")
+    fi
+
+    MULTIMODAL_COMBOS=(
+        "${BEST_AUDIO_FEATURE_SET}|${BEST_TEXT_FEATURE_SET}"
+        "${BEST_AUDIO_FEATURE_SET}|${BEST_VISUAL_FEATURE_SET}"
+        "${BEST_TEXT_FEATURE_SET}|${BEST_VISUAL_FEATURE_SET}"
+        "${BEST_AUDIO_FEATURE_SET}|${BEST_TEXT_FEATURE_SET}|${BEST_VISUAL_FEATURE_SET}"
+    )
+
+    for fusion in "${FUSION_MODES[@]}"; do
+        for combo_spec in "${MULTIMODAL_COMBOS[@]}"; do
+            IFS='|' read -r -a combo_parts <<< "${combo_spec}"
+            combo_name="$(combo_name_from_parts "${combo_parts[@]}")"
+            manifest="${MANIFESTS}/model_processed_manifest_${combo_name}_multimodal_turns.csv"
+            if [ ! -f "${manifest}" ]; then
+                build_multimodal_manifest_if_needed "${combo_name}" "raw_turns" "multimodal_turns" "${combo_parts[@]}" || continue
+            fi
+            run_if_needed "${combo_name}_turns_multimodal_${TURN_BACKBONE_TRAINER_MODEL}_${fusion}" \
+                "${PYTHON_BIN}" "${SCRIPTS}/train_tcn_multimodal.py" \
+                --manifest "${manifest}" \
+                --backbone "${TURN_BACKBONE_TRAINER_MODEL}" \
+                --fusion-mode "${fusion}" \
+                --fusion-channels "${FUSION_CHANNELS}" \
+                --modality-dropout "${MODALITY_DROPOUT}" \
+                $(attention_args_for_model "${TURN_BACKBONE_TRAINER_MODEL}") \
+                $(turn_common_args)
+        done
+    done
+fi
+
+# =====================================================================
+# Model Ladder Step 5: Legacy fixed-window comparison on winner backbone
+# =====================================================================
+if should_run_step 5; then
+    resolve_turn_backbone_selection
+    echo "=== Step 5: Legacy fixed-window comparison (${TURN_BACKBONE_TRAINER_MODEL}) ==="
+    for fs in "${FEATURE_SETS[@]}"; do
+        manifest="${MANIFESTS}/model_processed_manifest_${fs}_raw_windows.csv"
+        if [ ! -f "${manifest}" ]; then
+            build_window_manifest_if_needed "${fs}" || continue
+        fi
+        run_if_needed "${fs}_windows_${TURN_BACKBONE_TRAINER_MODEL}" \
+            "${PYTHON_BIN}" "${SCRIPTS}/train_tcn_turns.py" \
+            --manifest "${manifest}" \
+            --model "${TURN_BACKBONE_TRAINER_MODEL}" \
+            $(attention_args_for_model "${TURN_BACKBONE_TRAINER_MODEL}") \
+            $(turn_common_args)
+    done
+
+    echo "--- Winner-only multimodal legacy windows (${TURN_BACKBONE_TRAINER_MODEL}) ---"
+    FUSION_MODES=("${FUSION_MODE}")
+    if [ "${INCLUDE_CONCAT_BASELINE}" = "1" ] && [ "${FUSION_MODE}" != "concat" ]; then
+        FUSION_MODES=("concat" "${FUSION_MODE}")
+    fi
+
+    MULTIMODAL_COMBOS=(
+        "${BEST_AUDIO_FEATURE_SET}|${BEST_TEXT_FEATURE_SET}"
+        "${BEST_AUDIO_FEATURE_SET}|${BEST_VISUAL_FEATURE_SET}"
+        "${BEST_TEXT_FEATURE_SET}|${BEST_VISUAL_FEATURE_SET}"
+        "${BEST_AUDIO_FEATURE_SET}|${BEST_TEXT_FEATURE_SET}|${BEST_VISUAL_FEATURE_SET}"
+    )
+
+    for fusion in "${FUSION_MODES[@]}"; do
+        for combo_spec in "${MULTIMODAL_COMBOS[@]}"; do
+            IFS='|' read -r -a combo_parts <<< "${combo_spec}"
+            combo_name="$(combo_name_from_parts "${combo_parts[@]}")"
+            manifest="${MANIFESTS}/model_processed_manifest_${combo_name}_multimodal_windows.csv"
+            if [ ! -f "${manifest}" ]; then
+                build_multimodal_manifest_if_needed "${combo_name}" "raw_windows" "multimodal_windows" "${combo_parts[@]}" || continue
+            fi
+            run_if_needed "${combo_name}_windows_multimodal_${TURN_BACKBONE_TRAINER_MODEL}_${fusion}" \
+                "${PYTHON_BIN}" "${SCRIPTS}/train_tcn_multimodal.py" \
+                --manifest "${manifest}" \
+                --backbone "${TURN_BACKBONE_TRAINER_MODEL}" \
+                --fusion-mode "${fusion}" \
+                --fusion-channels "${FUSION_CHANNELS}" \
+                --modality-dropout "${MODALITY_DROPOUT}" \
+                $(attention_args_for_model "${TURN_BACKBONE_TRAINER_MODEL}") \
+                $(turn_common_args)
+        done
     done
 fi
 
