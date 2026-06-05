@@ -100,17 +100,22 @@ mkdir -p "${MANIFESTS}"
 # -----------------------------------------------------------------------
 # Step 0: Build raw manifests (auto-discovers participant roles)
 # -----------------------------------------------------------------------
-echo "--- Step 0: Build raw manifests for MPIII test ---"
-"${PYTHON_BIN}" "${SCRIPTS}/build_manifests_from_organizer.py" \
-    --data-root "${DATA_ROOT}" \
-    --datasets "${DATASET_NAME}" \
-    --out-dir "${EVAL_ROOT}" \
-    --cache-root "${ACM_DIR}/cache"
-echo ""
-
-# Fail fast when no rows are produced (typically split-directory mismatch).
 RAW_MANIFEST="${EVAL_ROOT}/model_raw_manifest_train_with_split.csv"
 RAW_STREAMS="${EVAL_ROOT}/model_raw_manifest_streams_train.csv"
+
+if [ -f "${RAW_MANIFEST}" ] && [ -f "${RAW_STREAMS}" ]; then
+    echo "--- Step 0: SKIP (raw manifests already exist) ---"
+else
+    echo "--- Step 0: Build raw manifests for MPIII test ---"
+    "${PYTHON_BIN}" "${SCRIPTS}/build_manifests_from_organizer.py" \
+        --data-root "${DATA_ROOT}" \
+        --datasets "${DATASET_NAME}" \
+        --out-dir "${EVAL_ROOT}" \
+        --cache-root "${ACM_DIR}/cache"
+    echo ""
+fi
+
+# Fail fast when no rows are produced (typically split-directory mismatch).
 MANIFEST_ROW_COUNT=$("${PYTHON_BIN}" -c "
 import csv
 with open('${RAW_MANIFEST}', newline='') as f:
@@ -146,51 +151,67 @@ for fs in "${FEATURE_SETS[@]}"; do
     manifest_raw="${MANIFESTS}/model_processed_manifest_${fs}_raw.csv"
     manifest_turns="${MANIFESTS}/model_processed_manifest_${fs}_raw_turns.csv"
 
-    echo "  [${fs}] Aligning to 25 Hz ..."
-    # shellcheck disable=SC2086
-    "${PYTHON_BIN}" "${SCRIPTS}/noxi_prepare_feature_tensors_25hz.py" \
-        --feature-set "${fs}" \
-        --manifest "${RAW_MANIFEST}" \
-        --streams "${RAW_STREAMS}" \
-        --out-root "${ACM_DIR}/processed/mpiii_eval/${fs}_25hz" \
-        --processed-manifest "${manifest_25hz}" \
-        --status-out "${MANIFESTS}/feature_status_${fs}_25hz.csv" \
-        --valid-roles ${VALID_ROLES}
-
-    echo "  [${fs}] Applying NoXi normalizer ..."
-    normalizer_path="$(normalizer_for_feature_set "${fs}")"
-    if [ ! -f "${normalizer_path}" ]; then
-        echo "Missing normalizer for ${fs}: ${normalizer_path}" >&2
-        exit 1
+    if [ -f "${manifest_25hz}" ]; then
+        echo "  [${fs}] 25 Hz manifest exists, skipping alignment."
+    else
+        echo "  [${fs}] Aligning to 25 Hz ..."
+        # shellcheck disable=SC2086
+        "${PYTHON_BIN}" "${SCRIPTS}/noxi_prepare_feature_tensors_25hz.py" \
+            --feature-set "${fs}" \
+            --manifest "${RAW_MANIFEST}" \
+            --streams "${RAW_STREAMS}" \
+            --out-root "${ACM_DIR}/processed/mpiii_eval/${fs}_25hz" \
+            --processed-manifest "${manifest_25hz}" \
+            --status-out "${MANIFESTS}/feature_status_${fs}_25hz.csv" \
+            --valid-roles ${VALID_ROLES}
     fi
-    "${PYTHON_BIN}" "${SCRIPTS}/noxi_fit_apply_feature_transform.py" \
-        --input-manifest "${manifest_25hz}" \
-        --method raw \
-        --normalizer-path "${normalizer_path}" \
-        --out-root "${ACM_DIR}/processed/transformed/mpiii_eval/${fs}_raw" \
-        --output-manifest "${manifest_raw}" \
-        --transform-dir "${EVAL_ROOT}/transforms/${fs}_raw"
 
-    echo "  [${fs}] Building all-pairs turn manifest ..."
-    "${PYTHON_BIN}" "${SCRIPTS}/build_allpairs_turn_manifest.py" \
-        --input-manifest "${manifest_raw}" \
-        --transcript-root "${DATA_ROOT}" \
-        --output-manifest "${manifest_turns}"
+    if [ -f "${manifest_raw}" ]; then
+        echo "  [${fs}] Transformed manifest exists, skipping normalizer."
+    else
+        echo "  [${fs}] Applying NoXi normalizer ..."
+        normalizer_path="$(normalizer_for_feature_set "${fs}")"
+        if [ ! -f "${normalizer_path}" ]; then
+            echo "Missing normalizer for ${fs}: ${normalizer_path}" >&2
+            exit 1
+        fi
+        "${PYTHON_BIN}" "${SCRIPTS}/noxi_fit_apply_feature_transform.py" \
+            --input-manifest "${manifest_25hz}" \
+            --method raw \
+            --normalizer-path "${normalizer_path}" \
+            --out-root "${ACM_DIR}/processed/transformed/mpiii_eval/${fs}_raw" \
+            --output-manifest "${manifest_raw}" \
+            --transform-dir "${EVAL_ROOT}/transforms/${fs}_raw"
+    fi
+
+    if [ -f "${manifest_turns}" ]; then
+        echo "  [${fs}] Turn manifest exists, skipping all-pairs build."
+    else
+        echo "  [${fs}] Building all-pairs turn manifest ..."
+        "${PYTHON_BIN}" "${SCRIPTS}/build_allpairs_turn_manifest.py" \
+            --input-manifest "${manifest_raw}" \
+            --transcript-root "${DATA_ROOT}" \
+            --output-manifest "${manifest_turns}"
+    fi
     echo ""
 done
 
 # -----------------------------------------------------------------------
 # Step 4: Build multimodal turn manifest (works on composite session IDs)
 # -----------------------------------------------------------------------
-echo "--- Step 4: Build multimodal turn manifest ---"
 MULTIMODAL_MANIFEST="${MANIFESTS}/model_processed_manifest_${COMBO_NAME}_multimodal_turns.csv"
-"${PYTHON_BIN}" "${SCRIPTS}/noxi_build_multimodal_turn_manifest.py" \
-    --input-manifests \
-        "${MANIFESTS}/model_processed_manifest_audio_w2vbert2_raw_turns.csv" \
-        "${MANIFESTS}/model_processed_manifest_text_xlm_roberta_raw_turns.csv" \
-        "${MANIFESTS}/model_processed_manifest_visual_videomae_raw_turns.csv" \
-    --output-manifest "${MULTIMODAL_MANIFEST}" \
-    --combo-name "${COMBO_NAME}"
+if [ -f "${MULTIMODAL_MANIFEST}" ]; then
+    echo "--- Step 4: SKIP (multimodal turn manifest already exists) ---"
+else
+    echo "--- Step 4: Build multimodal turn manifest ---"
+    "${PYTHON_BIN}" "${SCRIPTS}/noxi_build_multimodal_turn_manifest.py" \
+        --input-manifests \
+            "${MANIFESTS}/model_processed_manifest_audio_w2vbert2_raw_turns.csv" \
+            "${MANIFESTS}/model_processed_manifest_text_xlm_roberta_raw_turns.csv" \
+            "${MANIFESTS}/model_processed_manifest_visual_videomae_raw_turns.csv" \
+        --output-manifest "${MULTIMODAL_MANIFEST}" \
+        --combo-name "${COMBO_NAME}"
+fi
 echo ""
 
 # -----------------------------------------------------------------------
