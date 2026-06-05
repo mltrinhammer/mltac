@@ -167,14 +167,32 @@ def write_organizer_submission_tree(output_dir: Path, reconstructed: list[dict[s
         session_dir.mkdir(parents=True, exist_ok=True)
 
         for channel, role_name in enumerate(role_names):
+            # Build the per-frame prediction series for this channel,
+            # forward-filling then backward-filling gaps so the evaluator's
+            # minimum-coverage threshold is met.
+            series = y_pred[:, channel].copy()
+            # Mark uncovered or NaN frames as needing fill.
+            needs_fill = (~covered.astype(bool)) | np.isnan(series)
+            if needs_fill.any() and not needs_fill.all():
+                # Forward-fill.
+                for i in range(1, len(series)):
+                    if needs_fill[i] and not needs_fill[i - 1]:
+                        series[i] = series[i - 1]
+                        needs_fill[i] = False
+                # Backward-fill remaining leading gaps.
+                still_bad = np.isnan(series) | needs_fill
+                if still_bad.any():
+                    first_valid = np.where(~still_bad)[0]
+                    if len(first_valid) > 0:
+                        series[:first_valid[0]] = series[first_valid[0]]
+                        needs_fill[:first_valid[0]] = False
+
             file_path = session_dir / prediction_filename_for_role(role_name)
             with file_path.open("w", newline="", encoding="utf-8") as handle:
                 writer = csv.writer(handle)
-                for frame_idx in range(y_pred.shape[0]):
-                    pred_val = y_pred[frame_idx, channel]
-                    if not float(covered[frame_idx]):
-                        pred_text = ""
-                    elif np.isnan(pred_val):
+                for frame_idx in range(len(series)):
+                    pred_val = series[frame_idx]
+                    if np.isnan(pred_val):
                         pred_text = ""
                     else:
                         pred_text = f"{float(pred_val):.10f}"

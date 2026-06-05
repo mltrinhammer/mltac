@@ -5,16 +5,18 @@ set -euo pipefail
 ACM_DIR="${ACM_DIR:-$(pwd)/ACM}"
 PREPROCESS_SCRIPT="${ACM_DIR}/scripts/run_preprocessing.sh"
 TRAIN_SCRIPT="${ACM_DIR}/scripts/run_training.sh"
+MPIII_EVAL_SCRIPT="${ACM_DIR}/scripts/run_mpiii_test_multimodal_eval.sh"
 LOG_DIR="${LOG_DIR:-/home/mlut/mltac/.garbage}"
 DRY_RUN="${DRY_RUN:-0}"
 
-ALL_STEPS=(1 2 3 4 5)
+ALL_STEPS=(1 2 3 4 5 6)
 declare -A STEP_LABELS=(
     [1]="turns_simple_tcn"
     [2]="turns_dyadic_shared"
     [3]="turns_attention"
     [4]="turns_multimodal_winner"
     [5]="windows_winner"
+    [6]="mpiii_test_eval"
 )
 declare -A VALID_STEPS=()
 for step in "${ALL_STEPS[@]}"; do
@@ -140,7 +142,10 @@ echo ""
 
 declare -A STEP_JOB_IDS=()
 
-for step in "${ALL_STEPS[@]}"; do
+# Training steps 1-5 use run_training.sh; step 6 uses a separate script.
+_TRAIN_STEPS=(1 2 3 4 5)
+
+for step in "${_TRAIN_STEPS[@]}"; do
     if [ -z "${SELECTED_STEP_MAP[${step}]+x}" ]; then
         continue
     fi
@@ -209,3 +214,60 @@ for step in "${ALL_STEPS[@]}"; do
     STEP_JOB_IDS["${step}"]="${step_job_id}"
     echo "         job_id=${step_job_id}"
 done
+
+# =====================================================================
+# Step 6: MPIII test evaluation (depends on step 4 checkpoint + preprocessing)
+# =====================================================================
+if [ -n "${SELECTED_STEP_MAP[6]+x}" ]; then
+    label="${STEP_LABELS[6]}"
+    job_name="gcm_s6_${label}"
+    output_path="${LOG_DIR}/${job_name}.%j.out"
+    error_path="${LOG_DIR}/${job_name}.%j.err"
+
+    # Depends on preprocessing (normalizers) and step 4 (checkpoint).
+    dependency_job_ids=()
+    if [ "${DRY_RUN}" = "1" ]; then
+        dependency_job_ids+=("<preprocess_job_id>")
+        if [ -n "${SELECTED_STEP_MAP[4]+x}" ]; then
+            dependency_job_ids+=("<step_4_job_id>")
+        fi
+    else
+        dependency_job_ids+=("${preprocess_job_id}")
+        if [ -n "${SELECTED_STEP_MAP[4]+x}" ] && [ -n "${STEP_JOB_IDS[4]:-}" ]; then
+            dependency_job_ids+=("${STEP_JOB_IDS[4]}")
+        fi
+    fi
+
+    dependency_string="afterok:${dependency_job_ids[0]}"
+    for dep_id in "${dependency_job_ids[@]:1}"; do
+        dependency_string+=":${dep_id}"
+    done
+
+    cmd=(
+        sbatch
+        --parsable
+        --dependency "${dependency_string}"
+        --export ALL
+        --job-name "${job_name}"
+        --output "${output_path}"
+        --error "${error_path}"
+        "${MPIII_EVAL_SCRIPT}"
+    )
+
+    if [ "${DRY_RUN}" = "1" ]; then
+        echo "[dry] step 6 (${label})"
+        printf '      '
+        printf '%q ' "${cmd[@]}"
+        echo ""
+    else
+        echo "[submit] step 6 (${label})"
+        submit_output="$("${cmd[@]}")"
+        step_job_id="${submit_output%%;*}"
+        if [ -z "${step_job_id}" ]; then
+            echo "Failed to parse job ID from sbatch output: ${submit_output}" >&2
+            exit 1
+        fi
+        STEP_JOB_IDS[6]="${step_job_id}"
+        echo "         job_id=${step_job_id}"
+    fi
+fi
