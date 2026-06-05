@@ -33,6 +33,7 @@ from src.acm_pipeline.io import write_csv
 DATASETS = {
     "noxi": {
         "cache_dir": "noxi_a",
+        "roles": ("expert", "novice"),
         "splits": {
             "train": "train_internal",
             "val": "val_internal",
@@ -42,15 +43,22 @@ DATASETS = {
     },
     "noxij": {
         "cache_dir": "noxi_b",
+        "roles": ("expert", "novice"),
         "splits": {
             "train": "train_internal",
             "val": "val_internal",
             "test": "test_internal",
         },
     },
+    "mpiigroupinteraction": {
+        "cache_dir": "mpiii",
+        "roles": "auto",
+        "splits": {
+            "test": "test",
+        },
+    },
 }
 
-ROLES = ("expert", "novice")
 TARGET_SUFFIX = "engagement.annotation.csv"
 
 # All streams known from the organizer feature set.
@@ -66,6 +74,9 @@ KNOWN_STREAMS = (
     "swin",
     "videomae",
 )
+
+# Reference stream used for auto-discovering participant roles from filenames.
+_AUTO_DISCOVER_STREAM = KNOWN_STREAMS[0]  # "audio.egemapsv2"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,6 +104,25 @@ def discover_sessions(split_dir: Path) -> list[str]:
         for d in split_dir.iterdir()
         if d.is_dir() and not d.name.startswith(".")
     )
+
+
+def discover_roles(session_dir: Path) -> tuple[str, ...]:
+    """Auto-discover participant role names from stream filenames.
+
+    Scans for files matching ``*.{_AUTO_DISCOVER_STREAM}.stream~`` and extracts
+    the prefix before the first dot as the role name.  Returns a sorted tuple of
+    unique role names found (e.g. ``("subjectPos1", "subjectPos2", ...)``).
+    """
+    suffix = f".{_AUTO_DISCOVER_STREAM}.stream~"
+    roles: set[str] = set()
+    for child in session_dir.iterdir():
+        if child.name.endswith(suffix):
+            role = child.name[: -len(suffix)]
+            if role:
+                roles.add(role)
+    if not roles:
+        return ()
+    return tuple(sorted(roles))
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +193,17 @@ def main() -> None:
             for session_id in discover_sessions(split_dir):
                 session_dir = split_dir / session_id
 
-                for role in ROLES:
+                # Resolve roles: fixed tuple for NoXi/NoXiJ, auto-discovered for MPII.
+                roles_cfg = cfg["roles"]
+                if roles_cfg == "auto":
+                    roles = discover_roles(session_dir)
+                    if not roles:
+                        print(f"  skip {dataset_name}/{split_dirname}/{session_id}: no roles discovered")
+                        continue
+                else:
+                    roles = roles_cfg
+
+                for role in roles:
                     # Use engagement annotation when available; test
                     # sessions may lack labels — an empty path signals
                     # "no supervision" to downstream preprocessing.

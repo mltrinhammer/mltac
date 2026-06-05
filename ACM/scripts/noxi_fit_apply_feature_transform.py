@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-root", type=Path, default=None)
     parser.add_argument("--output-manifest", type=Path, default=None)
     parser.add_argument("--transform-dir", type=Path, default=None)
+    parser.add_argument(
+        "--normalizer-path",
+        type=Path,
+        default=None,
+        help="Use an existing normalizer.npz instead of fitting on --train-split rows.",
+    )
     return parser.parse_args()
 
 
@@ -36,6 +42,10 @@ def tensor_path(row: dict[str, str]) -> Path:
     """Resolve tensor paths from a processed manifest row."""
 
     path = Path(row["tensor_relative_path"])
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def project_path(path: Path) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
@@ -81,19 +91,32 @@ def main() -> None:
     output_manifest = args.output_manifest or default_manifest_path(feature_set, suffix)
     transform_dir = args.transform_dir or PROJECT_ROOT / "outputs" / "transforms" / f"{feature_set}_{suffix}"
 
-    # Fit statistics only on the training split. Validation/test tensors are
-    # transformed with the same saved objects to avoid leakage.
-    train_paths = [tensor_path(row) for row in rows if row["model_split"] == args.train_split]
-    if not train_paths:
-        raise RuntimeError(f"No train rows found for split {args.train_split!r}.")
+    normalizer_input_path = project_path(args.normalizer_path) if args.normalizer_path else None
+    if normalizer_input_path is not None:
+        if not normalizer_input_path.exists():
+            raise RuntimeError(f"Provided normalizer path does not exist: {normalizer_input_path}")
+        normalizer = FeatureNormalizer.load(normalizer_input_path)
+        normalizer_path = normalizer_input_path
+        fitted_normalizer_relative_path = (
+            str(normalizer_input_path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+            if normalizer_input_path.is_relative_to(PROJECT_ROOT)
+            else str(normalizer_input_path)
+        )
+    else:
+        # Fit statistics only on the training split. Validation/test tensors are
+        # transformed with the same saved objects to avoid leakage.
+        train_paths = [tensor_path(row) for row in rows if row["model_split"] == args.train_split]
+        if not train_paths:
+            raise RuntimeError(f"No train rows found for split {args.train_split!r}.")
 
-    # All transforms are fit on the training split only, then applied unchanged
-    # to every row in the input manifest.
-    # The normalizer is always fitted, including for "raw". Raw means no
-    # dimensionality reduction, not unnormalized model input.
-    normalizer = FeatureNormalizer.fit_npz_paths(train_paths)
-    normalizer_path = transform_dir / "normalizer.npz"
-    normalizer.save(normalizer_path)
+        # All transforms are fit on the training split only, then applied unchanged
+        # to every row in the input manifest.
+        # The normalizer is always fitted, including for "raw". Raw means no
+        # dimensionality reduction, not unnormalized model input.
+        normalizer = FeatureNormalizer.fit_npz_paths(train_paths)
+        normalizer_path = transform_dir / "normalizer.npz"
+        normalizer.save(normalizer_path)
+        fitted_normalizer_relative_path = str(normalizer_path.relative_to(PROJECT_ROOT)).replace("\\", "/")
 
     reducer_path = ""
     variance_path = ""
@@ -119,7 +142,7 @@ def main() -> None:
                 source_tensor_relative_path=np.asarray([row["tensor_relative_path"]]),
                 feature_set=np.asarray([feature_set]),
                 transform_method=np.asarray([args.method]),
-                normalizer_path=np.asarray([str(normalizer_path.relative_to(PROJECT_ROOT)).replace("\\", "/")]),
+                normalizer_path=np.asarray([fitted_normalizer_relative_path]),
                 reducer_path=np.asarray([""]),
                 sample_rate_hz=np.asarray(data["sample_rate_hz"], dtype=np.float32),
             )
@@ -131,7 +154,7 @@ def main() -> None:
                 "tensor_relative_path": str(out_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
                 "source_tensor_relative_path": row["tensor_relative_path"],
                 "n_features": str(x_out.shape[1]),
-                "normalizer_path": str(normalizer_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+                "normalizer_path": fitted_normalizer_relative_path,
                 "reducer_path": reducer_path,
                 "variance_path": variance_path,
             }
@@ -148,6 +171,7 @@ def main() -> None:
         "method": "raw",
         "train_split": args.train_split,
         "normalizer_path": str(normalizer_path),
+        "normalizer_source": "provided" if normalizer_input_path is not None else "fitted",
         "reducer_path": "",
     }
     transform_dir.mkdir(parents=True, exist_ok=True)

@@ -10,6 +10,7 @@ import numpy as np
 DATASET_CACHE_DIR = {
     "noxi": "noxi_a",
     "noxij": "noxi_b",
+    "mpiigroupinteraction": "mpiii",
 }
 
 # The cached rclone layout uses dataset-specific folder names (`noxi_a`,

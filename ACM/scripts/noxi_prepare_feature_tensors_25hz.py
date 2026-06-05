@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-root", type=Path, default=None)
     parser.add_argument("--processed-manifest", type=Path, default=None)
     parser.add_argument("--status-out", type=Path, default=None)
+    parser.add_argument(
+        "--valid-roles",
+        nargs="*",
+        default=["expert", "novice"],
+        help="Roles to process (default: expert novice). Pass no value to accept all roles.",
+    )
     return parser.parse_args()
 
 
@@ -248,11 +254,13 @@ def main() -> None:
     manifest_rows = read_csv(args.manifest)
     stream_lookup = build_stream_lookup(read_csv(args.streams))
 
+    valid_roles = set(args.valid_roles) if args.valid_roles else None
+
     processed_rows: list[dict[str, object]] = []
     status_rows: list[dict[str, object]] = []
     for row in manifest_rows:
-        # Only split-assigned expert/novice examples are valid modelling rows.
-        if row.get("role") not in {"expert", "novice"}:
+        # Only split-assigned roles matching --valid-roles are processed.
+        if valid_roles is not None and row.get("role") not in valid_roles:
             continue
         if not row.get("model_split") or row.get("model_split") == "unassigned":
             continue
