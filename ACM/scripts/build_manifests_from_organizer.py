@@ -53,6 +53,7 @@ DATASETS = {
     "mpiigroupinteraction": {
         "cache_dir": "mpiii",
         "roles": "auto",
+        "flat": True,
         "splits": {
             "test": "test",
         },
@@ -177,16 +178,27 @@ def main() -> None:
             continue
 
         cache_dataset = args.cache_root / cfg["cache_dir"]
-        cache_dataset.mkdir(parents=True, exist_ok=True)
+        flat_layout = cfg.get("flat", False)
+        if not flat_layout:
+            cache_dataset.mkdir(parents=True, exist_ok=True)
 
         for split_dirname, model_split in cfg["splits"].items():
-            split_dir = dataset_dir / split_dirname
+            if flat_layout:
+                # Flat layout: sessions live directly in the dataset root,
+                # not under a split subdirectory.  We symlink the dataset
+                # root into the cache under the split name so downstream
+                # path resolution (cache/mpiii/test/001/...) still works.
+                split_dir = dataset_dir
+            else:
+                split_dir = dataset_dir / split_dirname
             if not split_dir.is_dir():
                 print(f"  skip {dataset_name}/{split_dirname}: directory not found")
                 continue
 
-            # Symlink the entire split directory into the cache.
+            # Symlink into the cache.
             link_path = cache_dataset / split_dirname
+            if flat_layout:
+                cache_dataset.mkdir(parents=True, exist_ok=True)
             create_symlink(split_dir, link_path)
             print(f"  link {link_path} -> {split_dir}")
 

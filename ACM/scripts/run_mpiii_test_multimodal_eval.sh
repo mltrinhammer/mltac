@@ -108,6 +108,23 @@ echo "--- Step 0: Build raw manifests for MPIII test ---"
     --cache-root "${ACM_DIR}/cache"
 echo ""
 
+# Fail fast when no rows are produced (typically split-directory mismatch).
+RAW_MANIFEST="${EVAL_ROOT}/model_raw_manifest_train_with_split.csv"
+RAW_STREAMS="${EVAL_ROOT}/model_raw_manifest_streams_train.csv"
+MANIFEST_ROW_COUNT=$("${PYTHON_BIN}" -c "
+import csv
+with open('${RAW_MANIFEST}', newline='') as f:
+    print(sum(1 for _ in csv.DictReader(f)))
+")
+if [ "${MANIFEST_ROW_COUNT}" -eq 0 ]; then
+    echo "No MPIII manifest rows were produced. Check available split directories under ${DATA_ROOT}/${DATASET_NAME}." >&2
+    if [ -d "${DATA_ROOT}/${DATASET_NAME}" ]; then
+        echo "Found directories:" >&2
+        find "${DATA_ROOT}/${DATASET_NAME}" -maxdepth 1 -mindepth 1 -type d -printf '  %f\n' >&2 || true
+    fi
+    exit 1
+fi
+
 # Discover the roles that were found so we can pass them to --valid-roles.
 VALID_ROLES=$("${PYTHON_BIN}" -c "
 import csv, sys
@@ -123,9 +140,6 @@ echo ""
 # -----------------------------------------------------------------------
 # Steps 1-3: Prepare 25 Hz tensors, transform, build all-pairs turn manifests
 # -----------------------------------------------------------------------
-RAW_MANIFEST="${EVAL_ROOT}/model_raw_manifest_train_with_split.csv"
-RAW_STREAMS="${EVAL_ROOT}/model_raw_manifest_streams_train.csv"
-
 echo "--- Steps 1-3: Prepare, transform, and build all-pairs turn manifests ---"
 for fs in "${FEATURE_SETS[@]}"; do
     manifest_25hz="${MANIFESTS}/model_processed_manifest_${fs}_25hz.csv"
