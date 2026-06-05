@@ -81,10 +81,19 @@ def group_rows_by_session(
 def locate_transcript(
     transcript_root: Path, dataset: str, session_id: str, role: str,
 ) -> Path | None:
-    """Find a transcript file by searching split subdirectories."""
+    """Find a transcript file by searching split subdirectories.
+
+    Also checks a flat layout where sessions live directly in the dataset
+    root (e.g. ``mpiigroupinteraction/001/...``) without a split subdir.
+    """
     base = transcript_root / dataset
     if not base.exists():
         return None
+    # Flat layout: sessions directly in dataset root.
+    flat_candidate = base / session_id / f"{role}.{TRANSCRIPT_SUFFIX}"
+    if flat_candidate.exists():
+        return flat_candidate
+    # Hierarchical layout: split subdirectory between dataset and session.
     for split_dir in sorted(base.iterdir()):
         if not split_dir.is_dir():
             continue
