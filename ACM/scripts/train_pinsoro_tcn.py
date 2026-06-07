@@ -28,7 +28,9 @@ from src.acm_pipeline.pinsoro_models_tcn import build_pinsoro_tcn
 from src.acm_pipeline.pinsoro_train_utils import (
     CLASS_COUNTS,
     HEADS,
+    fill_and_validate_prediction_coverage,
     masked_multitask_cross_entropy,
+    prediction_coverage_rows,
     write_csv,
     write_metric_outputs,
     write_predictions,
@@ -221,9 +223,9 @@ def reconstruct(
             pred = np.full(len(covered), -1, dtype=np.int64)
             pred[covered] = np.argmax(sums[covered], axis=1)
             acc[f"{head}_pred"] = pred
-            acc[f"{head}_mask"] = np.asarray(acc[f"{head}_mask"]) & covered
+            acc[f"{head}_mask"] = np.asarray(acc[f"{head}_mask"]).astype(bool)
         reconstructed.append(acc)
-    return reconstructed
+    return fill_and_validate_prediction_coverage(reconstructed)
 
 
 def main() -> None:
@@ -347,6 +349,7 @@ def main() -> None:
         )
         reconstructed = reconstruct(model, val_dataset, val_loader, device)
         write_metric_outputs(run_dir, reconstructed)
+        coverage_rows = prediction_coverage_rows(reconstructed, "validation")
         write_predictions(run_dir / "val_predictions.csv", reconstructed)
         test_windows = read_pinsoro_window_manifest(
             args.manifest, PROJECT_ROOT, args.test_split
@@ -355,7 +358,9 @@ def main() -> None:
             test_dataset = PinSoRoWindowDataset(test_windows, args.max_cached_tensors)
             test_loader = make_loader(test_dataset, args, shuffle=False)
             test_reconstructed = reconstruct(model, test_dataset, test_loader, device)
+            coverage_rows.extend(prediction_coverage_rows(test_reconstructed, "test"))
             write_test_predictions(run_dir / "test_predictions.csv", test_reconstructed)
+        write_csv(run_dir / "prediction_coverage.csv", coverage_rows)
     print(f"Run directory: {run_dir}", flush=True)
 
 

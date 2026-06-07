@@ -12,6 +12,7 @@ from torch import nn
 
 HEADS = ("task", "social")
 CLASS_COUNTS = {"task": 4, "social": 5}
+MAX_MISSING_PREDICTION_FRACTION = 0.01
 
 
 def masked_multitask_cross_entropy(
@@ -88,6 +89,79 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def fill_and_validate_prediction_coverage(
+    reconstructed: list[dict[str, object]],
+    max_missing_fraction: float = MAX_MISSING_PREDICTION_FRACTION,
+) -> list[dict[str, object]]:
+    """Fill small prediction gaps and fail when reconstruction misses too much."""
+
+    if not 0.0 <= max_missing_fraction <= 1.0:
+        raise ValueError("max_missing_fraction must be between 0 and 1.")
+    for item in reconstructed:
+        covered = np.asarray(item["covered"], dtype=bool)
+        n_frames = int(len(covered))
+        n_missing = int((~covered).sum())
+        missing_fraction = n_missing / n_frames if n_frames else 1.0
+        item["covered_before_fill"] = covered.copy()
+        item["n_missing_before_fill"] = n_missing
+        item["missing_fraction_before_fill"] = missing_fraction
+        if missing_fraction > max_missing_fraction:
+            raise RuntimeError(
+                "Prediction coverage below threshold for "
+                f"{item['domain']}/{item['source_split']}/{item['session_id']}/"
+                f"{item['role']}: missing {n_missing}/{n_frames} frames "
+                f"({missing_fraction:.3%}), allowed {max_missing_fraction:.3%}."
+            )
+        valid_indices = np.flatnonzero(covered)
+        if not len(valid_indices):
+            raise RuntimeError(
+                "No predictions reconstructed for "
+                f"{item['domain']}/{item['source_split']}/{item['session_id']}/"
+                f"{item['role']}."
+            )
+        forward_indices = np.maximum.accumulate(
+            np.where(covered, np.arange(n_frames), -1)
+        )
+        forward_indices[forward_indices < 0] = valid_indices[0]
+        for head in HEADS:
+            pred = np.asarray(item[f"{head}_pred"])
+            filled = pred[forward_indices]
+            if np.any(filled < 0):
+                raise RuntimeError(f"{head} predictions remain missing after fill.")
+            item[f"{head}_pred"] = filled
+        item["covered"] = np.ones(n_frames, dtype=bool)
+    return reconstructed
+
+
+def prediction_coverage_rows(
+    reconstructed: list[dict[str, object]], split: str
+) -> list[dict[str, object]]:
+    rows = []
+    for item in reconstructed:
+        covered = np.asarray(item["covered_before_fill"], dtype=bool)
+        rows.append(
+            {
+                "split": split,
+                "domain": item["domain"],
+                "source_split": item["source_split"],
+                "session_id": item["session_id"],
+                "role": item["role"],
+                "n_frames": int(len(covered)),
+                "n_missing_before_fill": int(item["n_missing_before_fill"]),
+                "missing_fraction_before_fill": float(
+                    item["missing_fraction_before_fill"]
+                ),
+                "n_missing_after_fill": int(
+                    sum(
+                        np.count_nonzero(np.asarray(item[f"{head}_pred"]) < 0)
+                        for head in HEADS
+                    )
+                ),
+            }
+        )
+    return rows
 
 
 def metric_rows(
