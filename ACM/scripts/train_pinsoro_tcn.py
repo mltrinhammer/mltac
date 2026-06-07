@@ -26,6 +26,7 @@ from src.acm_pipeline.pinsoro_data import (
 )
 from src.acm_pipeline.pinsoro_models_tcn import build_pinsoro_tcn
 from src.acm_pipeline.pinsoro_train_utils import (
+    CLASS_COUNTS,
     HEADS,
     masked_multitask_cross_entropy,
     write_csv,
@@ -36,10 +37,18 @@ from src.acm_pipeline.pinsoro_train_utils import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train PinSoRo fixed-window TCN classifiers.")
+    parser = argparse.ArgumentParser(
+        description="Train PinSoRo fixed-window TCN classifiers."
+    )
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--model", choices=["simple", "dyadic_shared", "attention"], required=True)
-    parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "pinsoro" / "experiments")
+    parser.add_argument(
+        "--model", choices=["simple", "dyadic_shared", "attention"], required=True
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=PROJECT_ROOT / "outputs" / "pinsoro" / "experiments",
+    )
     parser.add_argument("--run-name", default="")
     parser.add_argument("--train-split", default="train_internal")
     parser.add_argument("--val-split", default="val_internal")
@@ -80,14 +89,21 @@ def resolve_device(name: str) -> torch.device:
 
 
 def serializable_args(args: argparse.Namespace) -> dict[str, object]:
-    return {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
+    return {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in vars(args).items()
+    }
 
 
-def make_loader(dataset: PinSoRoWindowDataset, args: argparse.Namespace, shuffle: bool) -> DataLoader:
+def make_loader(
+    dataset: PinSoRoWindowDataset, args: argparse.Namespace, shuffle: bool
+) -> DataLoader:
     if shuffle:
         return DataLoader(
             dataset,
-            batch_sampler=SessionBatchSampler(dataset.windows, args.batch_size, args.seed),
+            batch_sampler=SessionBatchSampler(
+                dataset.windows, args.batch_size, args.seed
+            ),
             num_workers=args.num_workers,
             collate_fn=pinsoro_window_collate,
         )
@@ -100,7 +116,39 @@ def make_loader(dataset: PinSoRoWindowDataset, args: argparse.Namespace, shuffle
     )
 
 
-def train_epoch(model: torch.nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer, device: torch.device) -> float:
+def compute_class_weights(windows: list) -> dict[str, torch.Tensor]:
+    counts = {head: np.zeros(CLASS_COUNTS[head], dtype=np.int64) for head in HEADS}
+    seen: set[tuple[Path, str]] = set()
+    for window in windows:
+        for role_idx, path in enumerate(window.tensor_paths):
+            if not window.supervised[role_idx]:
+                continue
+            for head in HEADS:
+                key = (path, head)
+                if key in seen:
+                    continue
+                seen.add(key)
+                with np.load(path) as data:
+                    labels = np.asarray(data[f"{head}_y"], dtype=np.int64)
+                    mask = np.asarray(data[f"{head}_mask"]).astype(bool)
+                counts[head] += np.bincount(labels[mask], minlength=CLASS_COUNTS[head])
+    weights = {}
+    for head in HEADS:
+        total = counts[head].sum()
+        values = np.zeros(CLASS_COUNTS[head], dtype=np.float32)
+        present = counts[head] > 0
+        values[present] = total / (present.sum() * counts[head][present])
+        weights[head] = torch.from_numpy(values)
+    return weights
+
+
+def train_epoch(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    class_weights: dict[str, torch.Tensor],
+) -> float:
     model.train()
     losses = []
     for batch in loader:
@@ -108,7 +156,7 @@ def train_epoch(model: torch.nn.Module, loader: DataLoader, optimizer: torch.opt
         if not any(torch.any(batch[f"{head}_mask"]) for head in HEADS):
             continue
         optimizer.zero_grad(set_to_none=True)
-        loss = masked_multitask_cross_entropy(model(batch["x"]), batch)
+        loss = masked_multitask_cross_entropy(model(batch["x"]), batch, class_weights)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
@@ -117,13 +165,20 @@ def train_epoch(model: torch.nn.Module, loader: DataLoader, optimizer: torch.opt
 
 
 @torch.no_grad()
-def reconstruct(model: torch.nn.Module, dataset: PinSoRoWindowDataset, loader: DataLoader, device: torch.device) -> list[dict[str, object]]:
+def reconstruct(
+    model: torch.nn.Module,
+    dataset: PinSoRoWindowDataset,
+    loader: DataLoader,
+    device: torch.device,
+) -> list[dict[str, object]]:
     model.eval()
     accumulators: dict[tuple[str, str, str, str], dict[str, object]] = {}
     for batch in loader:
         indices = batch["window_indices"].numpy()
         logits = model(batch["x"].to(device))
-        logits_np = {head: value.detach().cpu().numpy() for head, value in logits.items()}
+        logits_np = {
+            head: value.detach().cpu().numpy() for head, value in logits.items()
+        }
         for batch_idx, window_idx in enumerate(indices):
             window = dataset.windows[int(window_idx)]
             s, e = window.start_frame, window.end_frame
@@ -137,12 +192,20 @@ def reconstruct(model: torch.nn.Module, dataset: PinSoRoWindowDataset, loader: D
                         "session_id": window.session_id,
                         "role": role,
                         "task_y": full["task_y"][: window.session_aligned_len],
-                        "task_mask": full["task_mask"][: window.session_aligned_len].astype(bool),
+                        "task_mask": full["task_mask"][
+                            : window.session_aligned_len
+                        ].astype(bool),
                         "social_y": full["social_y"][: window.session_aligned_len],
-                        "social_mask": full["social_mask"][: window.session_aligned_len].astype(bool),
+                        "social_mask": full["social_mask"][
+                            : window.session_aligned_len
+                        ].astype(bool),
                         "count": np.zeros(window.session_aligned_len, dtype=np.float64),
-                        "task_sum": np.zeros((window.session_aligned_len, 4), dtype=np.float64),
-                        "social_sum": np.zeros((window.session_aligned_len, 5), dtype=np.float64),
+                        "task_sum": np.zeros(
+                            (window.session_aligned_len, 4), dtype=np.float64
+                        ),
+                        "social_sum": np.zeros(
+                            (window.session_aligned_len, 5), dtype=np.float64
+                        ),
                     }
                 acc = accumulators[key]
                 acc["count"][s:e] += 1.0
@@ -167,22 +230,36 @@ def main() -> None:
     args = parse_args()
     set_seed(args.seed)
     device = resolve_device(args.device)
-    train_windows = read_pinsoro_window_manifest(args.manifest, PROJECT_ROOT, args.train_split)
-    val_windows = read_pinsoro_window_manifest(args.manifest, PROJECT_ROOT, args.val_split)
+    train_windows = read_pinsoro_window_manifest(
+        args.manifest, PROJECT_ROOT, args.train_split
+    )
+    val_windows = read_pinsoro_window_manifest(
+        args.manifest, PROJECT_ROOT, args.val_split
+    )
     if not train_windows or not val_windows:
         raise RuntimeError("Both train and validation PinSoRo windows are required.")
     role_counts = {len(window.roles) for window in train_windows + val_windows}
     expected_roles = 1 if args.model == "simple" else 2
     if role_counts != {expected_roles}:
-        raise RuntimeError(f"Model {args.model} requires {expected_roles}-role manifest rows, got {sorted(role_counts)}")
-    feature_dims = {window.n_features_per_role for window in train_windows + val_windows}
+        raise RuntimeError(
+            f"Model {args.model} requires {expected_roles}-role manifest rows, got {sorted(role_counts)}"
+        )
+    feature_dims = {
+        window.n_features_per_role for window in train_windows + val_windows
+    }
     if len(feature_dims) != 1:
-        raise RuntimeError(f"Expected one feature dimension, got {sorted(feature_dims)}")
+        raise RuntimeError(
+            f"Expected one feature dimension, got {sorted(feature_dims)}"
+        )
     n_features = feature_dims.pop()
 
     train_dataset = PinSoRoWindowDataset(train_windows, args.max_cached_tensors)
     val_dataset = PinSoRoWindowDataset(val_windows, args.max_cached_tensors)
     train_loader = make_loader(train_dataset, args, shuffle=True)
+    class_weights = {
+        head: value.to(device)
+        for head, value in compute_class_weights(train_windows).items()
+    }
     val_loader = make_loader(val_dataset, args, shuffle=False)
     model = build_pinsoro_tcn(
         args.model,
@@ -193,9 +270,14 @@ def main() -> None:
         args.dropout,
         args.attention_heads,
     ).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+    )
 
-    run_name = args.run_name or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_pinsoro_{train_windows[0].feature_set}_{args.model}_seed{args.seed}"
+    run_name = (
+        args.run_name
+        or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_pinsoro_{train_windows[0].feature_set}_{args.model}_seed{args.seed}"
+    )
     run_dir = args.output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     config = serializable_args(args) | {
@@ -203,48 +285,72 @@ def main() -> None:
         "n_features_per_role": n_features,
         "n_train_windows": len(train_dataset),
         "n_val_windows": len(val_dataset),
+        "class_weights": {
+            head: value.cpu().tolist() for head, value in class_weights.items()
+        },
     }
     (run_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-    best_kappa = -float("inf")
+    best_organizer_score = -float("inf")
     best_epoch = 0
     stale_epochs = 0
     log_rows = []
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_epoch(model, train_loader, optimizer, device)
+        train_loss = train_epoch(model, train_loader, optimizer, device, class_weights)
         reconstructed = reconstruct(model, val_dataset, val_loader, device)
         val_metrics = write_metric_outputs(run_dir, reconstructed)
-        mean_kappa = val_metrics["mean_kappa"]
-        improved = np.isfinite(mean_kappa) and mean_kappa > best_kappa + args.min_delta
+        organizer_score = val_metrics["organizer_score"]
+        improved = (
+            np.isfinite(organizer_score)
+            and organizer_score > best_organizer_score + args.min_delta
+        )
         if improved:
-            best_kappa = mean_kappa
+            best_organizer_score = organizer_score
             best_epoch = epoch
             stale_epochs = 0
-            torch.save({"epoch": epoch, "model_state_dict": model.state_dict(), "val_mean_kappa": mean_kappa}, run_dir / "model_best.pt")
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "val_organizer_score": organizer_score,
+                },
+                run_dir / "model_best.pt",
+            )
         else:
             stale_epochs += 1
         log_rows.append(
             {
                 "epoch": epoch,
                 "train_loss": train_loss,
-                "val_mean_kappa": mean_kappa,
+                "val_organizer_score": organizer_score,
                 "best_epoch": best_epoch,
-                "best_val_mean_kappa": best_kappa,
+                "best_val_organizer_score": best_organizer_score,
                 "stale_epochs": stale_epochs,
             }
         )
         write_csv(run_dir / "training_log.csv", log_rows)
-        print(f"epoch={epoch:03d} train_loss={train_loss:.5f} val_mean_kappa={mean_kappa:.5f} best_epoch={best_epoch}", flush=True)
-        if args.patience > 0 and epoch >= args.min_epochs and stale_epochs >= args.patience:
+        print(
+            f"epoch={epoch:03d} train_loss={train_loss:.5f} val_organizer_score={organizer_score:.5f} best_epoch={best_epoch}",
+            flush=True,
+        )
+        if (
+            args.patience > 0
+            and epoch >= args.min_epochs
+            and stale_epochs >= args.patience
+        ):
             break
 
     checkpoint_path = run_dir / "model_best.pt"
     if checkpoint_path.exists():
-        model.load_state_dict(torch.load(checkpoint_path, map_location=device)["model_state_dict"])
+        model.load_state_dict(
+            torch.load(checkpoint_path, map_location=device)["model_state_dict"]
+        )
         reconstructed = reconstruct(model, val_dataset, val_loader, device)
         write_metric_outputs(run_dir, reconstructed)
         write_predictions(run_dir / "val_predictions.csv", reconstructed)
-        test_windows = read_pinsoro_window_manifest(args.manifest, PROJECT_ROOT, args.test_split)
+        test_windows = read_pinsoro_window_manifest(
+            args.manifest, PROJECT_ROOT, args.test_split
+        )
         if test_windows:
             test_dataset = PinSoRoWindowDataset(test_windows, args.max_cached_tensors)
             test_loader = make_loader(test_dataset, args, shuffle=False)

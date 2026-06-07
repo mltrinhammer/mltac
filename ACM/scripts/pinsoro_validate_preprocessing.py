@@ -1,91 +1,169 @@
-"""Validate PinSoRo processed tensors and window manifests."""
+"""Validate PinSoRo tensors, shared timebases, and window manifests."""
 
 from __future__ import annotations
-
-import argparse
-import sys
+import argparse, sys
 from collections import Counter, defaultdict
 from pathlib import Path
-
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
 from src.acm_pipeline.io import read_csv, write_csv
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate PinSoRo Stage 1 outputs.")
-    parser.add_argument("--manifests", type=Path, nargs="+", required=True)
-    parser.add_argument("--window-manifests", type=Path, nargs="*", default=[])
-    parser.add_argument("--out-dir", type=Path, default=PROJECT_ROOT / "outputs" / "pinsoro" / "validation")
-    return parser.parse_args()
+    p = argparse.ArgumentParser(description="Validate PinSoRo Stage 1 outputs.")
+    p.add_argument("--manifests", type=Path, nargs="+", required=True)
+    p.add_argument("--window-manifests", type=Path, nargs="*", default=[])
+    p.add_argument(
+        "--out-dir", type=Path, default=PROJECT_ROOT / "outputs/pinsoro/validation"
+    )
+    return p.parse_args()
 
 
-def resolve(path_text: str) -> Path:
-    path = Path(path_text)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+def resolve(text: str) -> Path:
+    p = Path(text)
+    return p if p.is_absolute() else PROJECT_ROOT / p
 
 
 def main() -> None:
     args = parse_args()
-    integrity_rows: list[dict[str, object]] = []
-    label_counts: dict[tuple[str, str, str, str, int], int] = defaultdict(int)
+    integrity = []
+    label_counts = defaultdict(int)
+    reference = {}
+    cross = []
     for manifest in args.manifests:
         for row in read_csv(manifest):
             path = resolve(row["tensor_relative_path"])
-            status, reason = "ok", ""
-            shapes: dict[str, tuple[int, ...]] = {}
+            status = "ok"
+            reasons = []
+            shapes = {}
+            key = (row["source_split"], row["session_id"], row["role"])
             try:
                 with np.load(path, allow_pickle=True) as data:
-                    for key in ("x", "task_y", "task_mask", "social_y", "social_mask"):
-                        shapes[key] = tuple(data[key].shape)
-                    length = shapes["x"][0]
-                    if any(shapes[key][0] != length for key in ("task_y", "task_mask", "social_y", "social_mask")):
-                        status, reason = "error", "length_mismatch"
+                    arrays = {
+                        name: np.asarray(data[name])
+                        for name in (
+                            "x",
+                            "task_y",
+                            "task_mask",
+                            "social_y",
+                            "social_mask",
+                        )
+                    }
+                    shapes = {name: value.shape for name, value in arrays.items()}
+                    length = len(arrays["x"])
+                    if any(len(arrays[name]) != length for name in arrays):
+                        reasons.append("internal_length_mismatch")
+                    if not np.isfinite(arrays["x"]).all():
+                        reasons.append("nonfinite_features")
+                    if float(np.asarray(data["sample_rate_hz"])[0]) != 30.0:
+                        reasons.append("not_30hz")
+                    signature = (
+                        length,
+                        arrays["task_y"],
+                        arrays["task_mask"],
+                        arrays["social_y"],
+                        arrays["social_mask"],
+                    )
+                    if key not in reference:
+                        reference[key] = (row["feature_set"], signature)
+                    else:
+                        ref_feature, ref = reference[key]
+                        mismatch = []
+                        if length != ref[0]:
+                            mismatch.append("length")
+                        for idx, name in enumerate(
+                            ("task_y", "task_mask", "social_y", "social_mask"), start=1
+                        ):
+                            if not np.array_equal(signature[idx], ref[idx]):
+                                mismatch.append(name)
+                        cross.append(
+                            {
+                                "source_split": key[0],
+                                "session_id": key[1],
+                                "role": key[2],
+                                "reference_feature": ref_feature,
+                                "feature_set": row["feature_set"],
+                                "status": "error" if mismatch else "ok",
+                                "reason": ";".join(mismatch),
+                                "aligned_len": length,
+                            }
+                        )
                     for head in ("task", "social"):
-                        labels = np.asarray(data[f"{head}_y"], dtype=np.int64)
-                        mask = np.asarray(data[f"{head}_mask"], dtype=np.float32) > 0
+                        labels = arrays[f"{head}_y"].astype(np.int64)
+                        mask = arrays[f"{head}_mask"].astype(bool)
                         for value, count in Counter(labels[mask].tolist()).items():
-                            label_counts[(row["feature_set"], row["domain"], row["model_split"], head, int(value))] += count
+                            label_counts[
+                                (
+                                    row["feature_set"],
+                                    row["domain"],
+                                    row["model_split"],
+                                    head,
+                                    int(value),
+                                )
+                            ] += count
             except Exception as exc:
-                status, reason = "error", f"{type(exc).__name__}:{exc}"
-            integrity_rows.append({
-                "manifest": str(manifest),
-                "feature_set": row.get("feature_set", ""),
-                "domain": row["domain"],
-                "source_split": row["source_split"],
-                "model_split": row["model_split"],
-                "session_id": row["session_id"],
-                "role": row["role"],
-                "status": status,
-                "reason": reason,
-                "x_shape": str(shapes.get("x", "")),
-            })
-
+                reasons.append(f"{type(exc).__name__}:{exc}")
+            if reasons:
+                status = "error"
+            integrity.append(
+                {
+                    "manifest": str(manifest),
+                    "feature_set": row.get("feature_set", ""),
+                    "domain": row["domain"],
+                    "source_split": row["source_split"],
+                    "model_split": row["model_split"],
+                    "session_id": row["session_id"],
+                    "role": row["role"],
+                    "status": status,
+                    "reason": ";".join(reasons),
+                    "x_shape": str(shapes.get("x", "")),
+                }
+            )
     label_rows = [
-        {"feature_set": key[0], "domain": key[1], "model_split": key[2], "label_head": key[3], "class_id": key[4], "count": count}
-        for key, count in sorted(label_counts.items())
+        {
+            "feature_set": k[0],
+            "domain": k[1],
+            "model_split": k[2],
+            "label_head": k[3],
+            "class_id": k[4],
+            "count": v,
+        }
+        for k, v in sorted(label_counts.items())
     ]
-    window_rows: list[dict[str, object]] = []
+    window_rows = []
     for manifest in args.window_manifests:
-        counts = Counter((row["domain"], row["model_split"]) for row in read_csv(manifest))
-        for (domain, model_split), count in sorted(counts.items()):
-            window_rows.append({"manifest": str(manifest), "domain": domain, "model_split": model_split, "count": count})
-
+        for (domain, split), count in sorted(
+            Counter((r["domain"], r["model_split"]) for r in read_csv(manifest)).items()
+        ):
+            window_rows.append(
+                {
+                    "manifest": str(manifest),
+                    "domain": domain,
+                    "model_split": split,
+                    "count": count,
+                }
+            )
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    write_csv(args.out_dir / "tensor_integrity.csv", list(integrity_rows[0].keys()), integrity_rows)
+    write_csv(args.out_dir / "tensor_integrity.csv", list(integrity[0]), integrity)
+    write_csv(args.out_dir / "cross_modality_alignment.csv", list(cross[0]), cross)
     if label_rows:
-        write_csv(args.out_dir / "label_class_counts.csv", list(label_rows[0].keys()), label_rows)
+        write_csv(
+            args.out_dir / "label_class_counts.csv", list(label_rows[0]), label_rows
+        )
     if window_rows:
-        write_csv(args.out_dir / "window_counts.csv", list(window_rows[0].keys()), window_rows)
-    errors = sum(row["status"] != "ok" for row in integrity_rows)
-    print(f"Validated tensors: {len(integrity_rows)}; errors: {errors}")
+        write_csv(args.out_dir / "window_counts.csv", list(window_rows[0]), window_rows)
+    errors = sum(r["status"] != "ok" for r in integrity) + sum(
+        r["status"] != "ok" for r in cross
+    )
+    print(
+        f"Validated tensors: {len(integrity)}; cross-modality comparisons: {len(cross)}; errors: {errors}"
+    )
     print(f"Output directory: {args.out_dir}")
     if errors:
-        raise RuntimeError(f"Validation found {errors} tensor errors.")
+        raise RuntimeError(f"Validation found {errors} errors.")
 
 
 if __name__ == "__main__":

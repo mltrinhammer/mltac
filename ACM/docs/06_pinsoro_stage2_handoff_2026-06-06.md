@@ -50,8 +50,8 @@ Stage 1 is complete. The shared Stage 1 data contains:
 
 The data pipeline uses fixed 10-second windows:
 
-- 250 frames at 25 Hz
-- stride 62 frames, approximately 2.5 seconds
+- 300 frames at 30 Hz
+- stride 75 frames, approximately 2.5 seconds
 - identical canonical window boundaries across modalities and architectures
 
 The storage-heavy directories are expected:
@@ -334,3 +334,15 @@ outputs/pinsoro/results_summary.csv
 - Do not modify the NoXi/NoXi-J scripts while completing PinSoRo Stage 2.
 - Use the existing canonical manifests so architecture comparisons remain
   controlled.
+
+## Local Four-GPU Execution
+
+Run the seed-13 grid across four directly visible local GPUs:
+
+```bash
+python scripts/run_pinsoro_training_4gpu.py
+```
+
+The local GPU runner skips completed runs, writes one log per experiment under
+`outputs/pinsoro/training_logs/`, and stops scheduling new runs if experiment
+outputs reach its configurable storage budget.

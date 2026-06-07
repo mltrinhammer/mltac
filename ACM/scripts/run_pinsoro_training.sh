@@ -27,7 +27,7 @@ for seed in ${SEEDS}; do
             if [ "${model}" = "simple" ]; then
                 kind="individual"
             fi
-            manifest="${WINDOWS_DIR}/${feature_set}_w250_s62_${kind}.csv"
+            manifest="${WINDOWS_DIR}/${feature_set}_w300_s75_${kind}.csv"
             run_name="pinsoro_${feature_set}_${model}_seed${seed}"
             cmd=(
                 "${PYTHON_BIN}" "${ACM_DIR}/scripts/train_pinsoro_tcn.py"
