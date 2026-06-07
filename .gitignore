@@ -1,4 +1,6 @@
 ACM/outputs/
+ACM/cache/
+ACM/.venv*/
 ACM/processed/
 .claude/
 _external/MultiMediate26 
