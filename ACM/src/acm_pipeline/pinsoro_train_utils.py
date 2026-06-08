@@ -12,6 +12,11 @@ from torch import nn
 
 HEADS = ("task", "social")
 CLASS_COUNTS = {"task": 4, "social": 5}
+HEAD_OUTPUT_NAMES = {"task": "task_engagement", "social": "social_engagement"}
+CLASS_LABELS = {
+    "task": ("goaloriented", "aimless", "adultseeking", "noplay"),
+    "social": ("solitary", "onlooker", "parallel", "associative", "cooperative"),
+}
 MAX_MISSING_PREDICTION_FRACTION = 0.01
 
 
@@ -301,3 +306,42 @@ def write_test_predictions(path: Path, reconstructed: list[dict[str, object]]) -
                             "y_pred": int(pred[frame_idx]),
                         }
                     )
+
+
+def write_pinsoro_submission_tree(
+    output_dir: Path, reconstructed: list[dict[str, object]]
+) -> None:
+    """Write organizer-style PinSoRo classification predictions.
+
+    Each output CSV contains one string class label per line and no header.
+    CC exports both roles; CR exports purple only.
+    """
+
+    written = 0
+    for item in reconstructed:
+        domain = str(item["domain"])
+        role = str(item["role"])
+        if domain == "CR" and role == "yellow":
+            continue
+        session_dir = output_dir / f"pinsoro-{domain.lower()}" / str(item["session_id"])
+        session_dir.mkdir(parents=True, exist_ok=True)
+        covered = np.asarray(item["covered"], dtype=bool)
+        if not covered.all():
+            raise RuntimeError(
+                f"Submission export requires full prediction coverage for "
+                f"{domain}/{item['session_id']}/{role}."
+            )
+        for head in HEADS:
+            predictions = np.asarray(item[f"{head}_pred"], dtype=np.int64)
+            if np.any((predictions < 0) | (predictions >= CLASS_COUNTS[head])):
+                raise ValueError(
+                    f"Invalid {head} class prediction for "
+                    f"{domain}/{item['session_id']}/{role}."
+                )
+            path = session_dir / f"{role}.{HEAD_OUTPUT_NAMES[head]}.prediction.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                for prediction in predictions:
+                    handle.write(f"{CLASS_LABELS[head][int(prediction)]}\n")
+            written += 1
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / ".complete").write_text(f"files={written}\n", encoding="utf-8")

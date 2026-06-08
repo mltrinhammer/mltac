@@ -19,6 +19,8 @@ MIN_EPOCHS="${MIN_EPOCHS:-10}"
 BATCH_SIZE="${BATCH_SIZE:-32}"
 NUM_WORKERS="${NUM_WORKERS:-0}"
 MAX_CACHED_TENSORS="${MAX_CACHED_TENSORS:-2}"
+MMAP_CACHE_ROOT="${MMAP_CACHE_ROOT:-${ACM_DIR}/processed/pinsoro_mmap}"
+RESUME="${RESUME:-1}"
 
 for seed in ${SEEDS}; do
     for feature_set in ${FEATURE_SETS}; do
@@ -42,7 +44,11 @@ for seed in ${SEEDS}; do
                 --batch-size "${BATCH_SIZE}"
                 --num-workers "${NUM_WORKERS}"
                 --max-cached-tensors "${MAX_CACHED_TENSORS}"
+                --mmap-cache-root "${MMAP_CACHE_ROOT}"
             )
+            if [ "${RESUME}" = "1" ]; then
+                cmd+=(--resume)
+            fi
             printf '%q ' "${cmd[@]}"
             printf '\n'
             if [ "${DRY_RUN}" != "1" ]; then

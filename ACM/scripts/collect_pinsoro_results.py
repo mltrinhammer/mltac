@@ -8,6 +8,22 @@ from pathlib import Path
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REQUIRED_OUTPUTS = (
+    "config.json",
+    "model_best.pt",
+    "training_log.csv",
+    "metrics_overall.csv",
+    "val_predictions.csv",
+    "test_predictions.csv",
+    "test_submission_format/.complete",
+)
+
+
+def is_complete(run_dir: Path) -> bool:
+    return all(
+        (run_dir / name).is_file() and (run_dir / name).stat().st_size > 0
+        for name in REQUIRED_OUTPUTS
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,6 +93,8 @@ def main() -> None:
     grouped = {"domain": [], "role": [], "domain_role": []}
     for config_path in sorted(args.experiments_dir.glob("*/config.json")):
         run_dir = config_path.parent
+        if not is_complete(run_dir):
+            continue
         domain_rows = read_rows(run_dir / "metrics_by_domain.csv")
         if not domain_rows:
             continue

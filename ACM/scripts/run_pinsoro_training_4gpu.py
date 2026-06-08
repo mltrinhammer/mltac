@@ -31,6 +31,7 @@ REQUIRED_OUTPUTS = (
     "metrics_overall.csv",
     "val_predictions.csv",
     "test_predictions.csv",
+    "test_submission_format/.complete",
 )
 
 
@@ -75,6 +76,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-epochs", type=int, default=10)
     p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--max-cached-tensors", type=int, default=2)
+    p.add_argument(
+        "--mmap-cache-root",
+        type=Path,
+        default=PROJECT_ROOT / "processed/pinsoro_mmap",
+    )
+    p.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume incomplete runs from model_last.pt when available.",
+    )
     p.add_argument("--rerun-completed", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
@@ -101,7 +113,7 @@ def command(args: argparse.Namespace, run: Run) -> list[str]:
         / "outputs/pinsoro/windows"
         / f"{run.feature_set}_w300_s75_{run.manifest_kind}.csv"
     )
-    return [
+    result = [
         str(args.python),
         str(PROJECT_ROOT / "scripts/train_pinsoro_tcn.py"),
         "--manifest",
@@ -126,9 +138,14 @@ def command(args: argparse.Namespace, run: Run) -> list[str]:
         str(args.num_workers),
         "--max-cached-tensors",
         str(args.max_cached_tensors),
+        "--mmap-cache-root",
+        str(args.mmap_cache_root),
         "--device",
         "cuda",
     ]
+    if args.resume:
+        result.append("--resume")
+    return result
 
 
 def main() -> None:
@@ -140,6 +157,12 @@ def main() -> None:
         raise ValueError("At least one GPU is required.")
     args.output_root.mkdir(parents=True, exist_ok=True)
     args.log_dir.mkdir(parents=True, exist_ok=True)
+    cache_marker = args.mmap_cache_root / ".complete"
+    if not cache_marker.is_file() and not args.dry_run:
+        raise FileNotFoundError(
+            f"Complete PinSoRo mmap cache not found: {cache_marker}. "
+            "Build it with scripts/pinsoro_build_mmap_cache.py."
+        )
     runs = [
         Run(feature, model, args.seed)
         for feature in args.features
@@ -189,7 +212,13 @@ def main() -> None:
             env["PYTHONUNBUFFERED"] = "1"
             with lock:
                 print(f"[gpu {gpu}] starting {run.name}", flush=True)
-            with log_path.open("w", encoding="utf-8") as log:
+            log_mode = "a" if args.resume else "w"
+            with log_path.open(log_mode, encoding="utf-8") as log:
+                log.write(
+                    f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                    f"gpu={gpu} resume={args.resume} ===\n"
+                )
+                log.flush()
                 result = subprocess.run(
                     command(args, run),
                     cwd=PROJECT_ROOT,
