@@ -1,0 +1,168 @@
+{
+  "domains": [
+    {
+      "domain": "CC",
+      "train_priors": {
+        "task": [
+          0.6381133793069048,
+          0.17460438203788456,
+          0.01592697434874238,
+          0.1713552643064683
+        ],
+        "social": [
+          0.07233035128311538,
+          0.06037183090050842,
+          0.22239361167907556,
+          0.14001360588046913,
+          0.5048906002568315
+        ]
+      },
+      "val_priors_oracle": {
+        "task": [
+          0.5790278911060011,
+          0.08949169201097841,
+          0.12352106668644759,
+          0.20795935019657297
+        ],
+        "social": [
+          0.07248362862296272,
+          0.07440107030077835,
+          0.3292962339062187,
+          0.014629971671694986,
+          0.5091890954983452
+        ]
+      }
+    },
+    {
+      "domain": "CR",
+      "train_priors": {
+        "task": [
+          0.7690831895081831,
+          0.04917648712602207,
+          0.03415619541477612,
+          0.14758412795101875
+        ],
+        "social": [
+          0.7026901090204817,
+          0.028512448327207222,
+          0.26693878401032933,
+          0.0018560554786176161,
+          2.6031633641200788e-06
+        ]
+      },
+      "val_priors_oracle": {
+        "task": [
+          0.7254475899005356,
+          0.06710022953328233,
+          0.01987758224942617,
+          0.18757459831675594
+        ],
+        "social": [
+          0.055202312138728324,
+          0.17791907514450866,
+          0.6828323699421965,
+          0.08398843930635838,
+          5.7803468208092484e-05
+        ]
+      }
+    }
+  ],
+  "top_results": [
+    {
+      "mode": "baseline+hysteresis_1",
+      "cc_mean_kappa": 0.3452650273522522,
+      "cr_mean_kappa": 0.37633991228234104,
+      "combined_mean_kappa": 0.3608024698172966,
+      "cc_pred_flips": 924,
+      "cr_pred_flips": 139
+    },
+    {
+      "mode": "bias_ce+hysteresis_1",
+      "cc_mean_kappa": 0.2949759176358135,
+      "cr_mean_kappa": 0.38718330485553887,
+      "combined_mean_kappa": 0.3410796112456762,
+      "cc_pred_flips": 553,
+      "cr_pred_flips": 79
+    },
+    {
+      "mode": "bias_ce",
+      "cc_mean_kappa": 0.29353078505766694,
+      "cr_mean_kappa": 0.38215862271494805,
+      "combined_mean_kappa": 0.3378447038863075,
+      "cc_pred_flips": 4814,
+      "cr_pred_flips": 434
+    },
+    {
+      "mode": "baseline",
+      "cc_mean_kappa": 0.3223310305886096,
+      "cr_mean_kappa": 0.35198521500583824,
+      "combined_mean_kappa": 0.3371581227972239,
+      "cc_pred_flips": 7095,
+      "cr_pred_flips": 835
+    },
+    {
+      "mode": "bias_balanced_ce+hysteresis_1",
+      "cc_mean_kappa": 0.3719220982264011,
+      "cr_mean_kappa": 0.26266597978895767,
+      "combined_mean_kappa": 0.3172940390076794,
+      "cc_pred_flips": 982,
+      "cr_pred_flips": 253
+    },
+    {
+      "mode": "prior_val_oracle+hysteresis_1",
+      "cc_mean_kappa": 0.3210097516529806,
+      "cr_mean_kappa": 0.2919473782431909,
+      "combined_mean_kappa": 0.3064785649480858,
+      "cc_pred_flips": 982,
+      "cr_pred_flips": 135
+    },
+    {
+      "mode": "prior_val_oracle",
+      "cc_mean_kappa": 0.31489880206934184,
+      "cr_mean_kappa": 0.2863385869921922,
+      "combined_mean_kappa": 0.30061869453076706,
+      "cc_pred_flips": 6864,
+      "cr_pred_flips": 840
+    },
+    {
+      "mode": "bias_balanced_ce",
+      "cc_mean_kappa": 0.3434513411730141,
+      "cr_mean_kappa": 0.24459589267675233,
+      "combined_mean_kappa": 0.2940236169248832,
+      "cc_pred_flips": 7677,
+      "cr_pred_flips": 1377
+    },
+    {
+      "mode": "prior_sqrt_uniform+hysteresis_1",
+      "cc_mean_kappa": 0.3064865268903063,
+      "cr_mean_kappa": 0.1847291304292935,
+      "combined_mean_kappa": 0.2456078286597999,
+      "cc_pred_flips": 1262,
+      "cr_pred_flips": 298
+    },
+    {
+      "mode": "prior_sqrt_uniform",
+      "cc_mean_kappa": 0.28886154870165326,
+      "cr_mean_kappa": 0.1915131404097637,
+      "combined_mean_kappa": 0.24018734455570848,
+      "cc_pred_flips": 9060,
+      "cr_pred_flips": 1520
+    },
+    {
+      "mode": "prior_uniform+hysteresis_1",
+      "cc_mean_kappa": 0.21561074941982172,
+      "cr_mean_kappa": 0.07267963741141624,
+      "combined_mean_kappa": 0.144145193415619,
+      "cc_pred_flips": 1488,
+      "cr_pred_flips": 278
+    },
+    {
+      "mode": "prior_uniform",
+      "cc_mean_kappa": 0.20049917278258994,
+      "cr_mean_kappa": 0.07241753513282473,
+      "combined_mean_kappa": 0.13645835395770733,
+      "cc_pred_flips": 10469,
+      "cr_pred_flips": 1301
+    }
+  ]
+}

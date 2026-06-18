@@ -1,0 +1,45 @@
+{
+  "manifest": "/work/ACM/mltac-main/ACM/MoE/noxi_j_data/outputs/windows_w2000_s1000/text_xlm_roberta_w2000_s1000_dyadic.csv",
+  "metadata": "/work/ACM/mltac-main/ACM/MoE/noxi_j_data/outputs/metadata/role_metadata.csv",
+  "metadata_mode": "age_gender_language",
+  "metadata_dropout": 0.2,
+  "output_root": "/work/ACM/mltac-main/ACM/MoE/experiments/noxi_moe1_noxi_j_metadata_head_experts",
+  "run_name": "noxi_j_text_xlm_roberta_dyadic_tcn_k11_metadata_head_seed13",
+  "train_split": "train_internal",
+  "val_split": "val_internal",
+  "test_splits": [
+    "test_internal"
+  ],
+  "hidden_channels": 64,
+  "levels": 5,
+  "kernel_size": 11,
+  "dropout": 0.2,
+  "causal_tcn": true,
+  "min_turn_frames": 5,
+  "batch_size": 32,
+  "epochs": 60,
+  "patience": 16,
+  "min_epochs": 24,
+  "min_delta": 0.001,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "ccc_weight": 0.5,
+  "num_workers": 0,
+  "seed": 13,
+  "device": "cuda",
+  "model": "dyadic_metadata_head",
+  "run_dir": "/work/ACM/mltac-main/ACM/MoE/experiments/noxi_moe1_noxi_j_metadata_head_experts/noxi_j_text_xlm_roberta_dyadic_tcn_k11_metadata_head_seed13",
+  "n_features_per_role": 768,
+  "output_dim": 2,
+  "metadata_dim": 7,
+  "metadata_stats": {
+    "age_mean": 3.403225806451613,
+    "age_std": 0.7922951026332347,
+    "languages": [
+      "Chinese",
+      "Japanese"
+    ]
+  },
+  "n_train_turns": 644,
+  "n_val_turns": 197
+}

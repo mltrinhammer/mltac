@@ -1,0 +1,17 @@
+{
+  "mode": "best_single",
+  "val_mean_kappa": 0.33549390884297314,
+  "best_feature": "visual_videomae",
+  "feature_val_mean_kappa": {
+    "visual_videomae": 0.33549390884297314,
+    "audio_w2vbert2": 0.15269211447204664,
+    "text_xlm_roberta": 0.10225548579908428
+  },
+  "domain": "CR",
+  "features": [
+    "visual_videomae",
+    "audio_w2vbert2",
+    "text_xlm_roberta"
+  ],
+  "n_val_rows": 82641
+}

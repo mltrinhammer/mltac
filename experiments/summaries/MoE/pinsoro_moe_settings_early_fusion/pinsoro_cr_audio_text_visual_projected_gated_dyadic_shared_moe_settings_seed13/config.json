@@ -1,0 +1,64 @@
+{
+  "manifest": [
+    "ACM/MoE/moe_data/outputs/windows_w2400_s1200/audio_w2vbert2_w2400_s1200_dyadic.csv",
+    "ACM/MoE/moe_data/outputs/windows_w2400_s1200/text_xlm_roberta_w2400_s1200_dyadic.csv",
+    "ACM/MoE/moe_data/outputs/windows_w2400_s1200/visual_videomae_w2400_s1200_dyadic.csv"
+  ],
+  "output_root": "ACM/MoE/experiments/pinsoro_moe_settings_early_fusion",
+  "run_name": "pinsoro_cr_audio_text_visual_projected_gated_dyadic_shared_moe_settings_seed13",
+  "domain_scope": "CR",
+  "train_split": "train_internal",
+  "val_split": "val_internal",
+  "test_split": "test_internal",
+  "fusion_mode": "gated",
+  "fusion_channels": 64,
+  "hidden_channels": 64,
+  "levels": 5,
+  "kernel_size": 11,
+  "dropout": 0.2,
+  "modality_dropout": 0.1,
+  "causal_tcn": true,
+  "cr_social_weighting": "shared_inverse",
+  "cr_social_weight_cap": 5.0,
+  "cr_social_target_class2_weight": 2.0,
+  "cr_social_target_class3_weight": 0.5,
+  "batch_size": 32,
+  "epochs": 60,
+  "patience": 16,
+  "min_epochs": 24,
+  "min_delta": 0.005,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "num_workers": 0,
+  "max_cached_tensors": 6,
+  "mmap_cache_root": null,
+  "seed": 13,
+  "device": "cuda",
+  "resume": false,
+  "soft_label_mode": "none",
+  "architecture": "projected_multimodal_dyadic_shared_tcn",
+  "classification_loss": "weighted multitask cross entropy",
+  "organizer_score": "mean validation Cohen kappa across available domain x task/social rows",
+  "modality_dims": {
+    "audio_w2vbert2": 1024,
+    "text_xlm_roberta": 768,
+    "visual_videomae": 1408
+  },
+  "n_train_windows": 333,
+  "n_val_windows": 109,
+  "class_weights": {
+    "task": [
+      0.32506006956100464,
+      5.083946704864502,
+      7.319797992706299,
+      1.6939613819122314
+    ],
+    "social": [
+      0.3557722866535187,
+      8.768786430358887,
+      0.9365412592887878,
+      134.8816680908203,
+      0.0
+    ]
+  }
+}

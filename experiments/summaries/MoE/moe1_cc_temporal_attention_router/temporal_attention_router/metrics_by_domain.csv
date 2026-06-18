@@ -1,0 +1,3 @@
+domain,mode,feature,head,n_frames,kappa,accuracy,mean_weights
+CC,temporal_attention_router,combined,task,215692,0.2998649553696823,0.6098464477124789,"{""audio_w2vbert2"": 0.22940489649772644, ""text_xlm_roberta"": 0.32176026701927185, ""visual_videomae"": 0.4488343894481659}"
+CC,temporal_attention_router,combined,social,184616,0.33377152966161566,0.603149239502535,"{""audio_w2vbert2"": 0.1445118486881256, ""text_xlm_roberta"": 0.333364874124527, ""visual_videomae"": 0.5221232175827026}"

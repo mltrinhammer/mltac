@@ -1,0 +1,3 @@
+domain,head,n_sequences,n_transitions,true_flips,pred_flips,true_flip_rate,pred_flip_rate,flip_rate_ratio,excess_flips,mean_abs_flip_gap_per_sequence
+CC,social,14,184602,88,3580,0.00047670122750566085,0.019393072664434838,40.68181818181818,3492,249.42857142857142
+CC,task,14,215678,148,3515,0.0006862081436215099,0.01629744341101086,23.75,3367,240.5

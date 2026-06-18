@@ -1,0 +1,3 @@
+domain,mode,feature,head,n_frames,kappa,accuracy,weights
+CR,two_head,combined,task,65346,0.2835522231536175,0.7156214611452881,"{""task"": [0.35, 0.45, 0.2]}"
+CR,two_head,combined,social,17295,-0.0038888858417032574,0.05585429314830876,"{""social"": [0.35, 0.15, 0.5]}"

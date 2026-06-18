@@ -1,0 +1,24 @@
+{
+  "mode": "uniform",
+  "domain": "CC",
+  "features": [
+    "visual_videomae",
+    "audio_w2vbert2",
+    "text_xlm_roberta"
+  ],
+  "step": 0.05,
+  "combine_kind": "logit",
+  "fit_split": null,
+  "optimistic_upper_bound": false,
+  "fit_loss_by_group": {},
+  "val_mean_kappa": 0.2981255782052581,
+  "weights_by_group": {
+    "all": [
+      0.3333333333333333,
+      0.3333333333333333,
+      0.3333333333333333
+    ]
+  },
+  "n_train_rows": 3186950,
+  "n_val_rows": 400308
+}

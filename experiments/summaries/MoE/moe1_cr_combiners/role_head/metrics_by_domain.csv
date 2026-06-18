@@ -1,0 +1,3 @@
+domain,mode,feature,head,n_frames,kappa,accuracy,weights
+CR,role_head,combined,task,65346,0.5070063977679116,0.7653567165549536,"{""purple_task"": [0.65, 0.2, 0.15]}"
+CR,role_head,combined,social,17295,0.09347122317608705,0.2189071986123157,"{""purple_social"": [0.6, 0.25, 0.15]}"

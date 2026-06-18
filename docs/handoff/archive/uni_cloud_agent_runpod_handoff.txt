@@ -1,0 +1,220 @@
+RunPod migration handoff for university-cloud agent
+===================================================
+
+Context
+-------
+The user has a working ML/research codebase and data/models on the university cloud.
+They temporarily lost access to university GPUs and want to rent public GPU compute,
+probably RunPod, but they have little RunPod/cloud experience and have lost touch
+with parts of the codebase because much of it was agent-built.
+
+Goal
+----
+Help the user move from "uncertain codebase on university cloud" to "repeatable
+experiments on a rented RunPod GPU" with the least risk and least wasted paid GPU
+time.
+
+Important principle
+-------------------
+Do not assume the full 1-1.5 TB dataset should be streamed live from the university
+cloud during training. That is likely fragile and slow. Prefer:
+
+1. University cloud = source of truth.
+2. RunPod = rented GPU compute.
+3. Copy/sync only the needed data/models/checkpoints to RunPod persistent storage.
+4. Run experiments on RunPod using local/attached storage.
+5. Sync results/checkpoints back to university storage.
+
+
+Phase 1: Produce a codebase and experiment runbook
+--------------------------------------------------
+Please create a concise runbook in the repository, e.g. EXPERIMENTS_RUNBOOK.md,
+with the following sections.
+
+1. Repository state
+   - Absolute repo path on university cloud.
+   - Current git branch.
+   - Current git commit hash.
+   - Whether there are uncommitted changes.
+   - Any important untracked files that are required for running.
+
+2. Python/environment setup
+   - Python version.
+   - Conda environment name, if used.
+   - Output of:
+     conda env export > environment.yml
+     or:
+     pip freeze > requirements-freeze.txt
+   - CUDA/PyTorch versions.
+   - Any non-Python dependencies.
+
+3. Data layout
+   - Exact paths to datasets on university cloud.
+   - Which files/folders are actually needed for current experiments.
+   - Approximate size of each required dataset folder.
+   - Whether data is many small files or a few large archives.
+   - Which files are raw data, precomputed features, labels/annotations, splits,
+     and cached tensors.
+
+4. Model/checkpoint layout
+   - Exact paths to pretrained models.
+   - Exact paths to existing checkpoints.
+   - Which checkpoints should be copied to RunPod.
+   - Which outputs/results should be synced back after runs.
+
+5. Experiment commands
+   - The exact command(s) that were running before GPU access was lost.
+   - A short smoke-test command that runs in 1-5 minutes.
+   - A medium test command that runs in 10-30 minutes.
+   - Full training/evaluation commands.
+   - Expected output files for each command.
+
+6. Hardware requirements
+   - Minimum GPU VRAM known to work.
+   - GPU type previously used on university cloud.
+   - Whether multi-GPU is required or optional.
+   - Expected runtime per experiment.
+
+7. Resume/checkpointing
+   - How to resume interrupted runs.
+   - Checkpoint frequency.
+   - Whether training can survive preemption/interruption.
+   - Command-line flags for resume/checkpoint path.
+
+
+Phase 2: Help user choose RunPod setup
+-------------------------------------
+The user is new to RunPod. Recommend a simple first setup:
+
+1. Create RunPod account.
+2. Add a small amount of credit.
+3. Create Network Storage in a region with good GPU availability.
+   - Use Standard Network Storage first unless training is I/O-bound.
+   - Size: start with what is needed, not necessarily all 1-1.5 TB.
+   - If the active experiment needs only validation/test precomputed features,
+     copy only those first.
+4. Launch a GPU Pod in the same region as the Network Storage.
+5. Use a PyTorch/CUDA template if available.
+6. Choose GPU based on VRAM:
+   - If <=24 GB VRAM is enough: RTX 4090 or similar may be cost-effective.
+   - If more VRAM is needed: A100 80GB is a safer first choice.
+   - Avoid H100 initially unless the code is already stable and runtime matters.
+7. Enable SSH access to the pod.
+8. Attach the Network Storage to the pod.
+
+Cost-control rules for the user:
+
+- Stop/terminate GPU pods when not actively training.
+- Keep persistent data on Network Storage, not only ephemeral pod disk.
+- Run smoke tests before full experiments.
+- Use tmux/screen for long runs.
+- Sync checkpoints/results back to university storage frequently.
+- Delete RunPod storage when the project no longer needs it.
+
+
+Phase 3: Prepare transfer commands
+----------------------------------
+Once the RunPod pod exists, collect:
+
+- RunPod SSH hostname.
+- SSH port.
+- SSH username.
+- Path where RunPod Network Storage is mounted.
+
+Then prepare rsync commands from university cloud to RunPod. Example shape:
+
+rsync -avh --progress /path/on/university/data/ USER@RUNPOD_HOST:/path/on/runpod/storage/data/
+
+For large transfers, prefer resumable/restartable commands:
+
+rsync -avh --partial --append-verify --info=progress2 /source/ USER@HOST:/dest/
+
+If the data is many small files, consider making a tar archive first, then transfer:
+
+tar -cf active_dataset.tar /path/to/active_dataset
+rsync -avh --partial --info=progress2 active_dataset.tar USER@HOST:/dest/
+
+After transfer, verify sizes/counts:
+
+du -sh /source/path
+du -sh /dest/path
+find /source/path -type f | wc -l
+find /dest/path -type f | wc -l
+
+
+Phase 4: Set up repo on RunPod
+------------------------------
+On RunPod:
+
+1. Clone the repository or rsync the existing repo.
+2. Check out the correct branch/commit.
+3. Create the environment.
+4. Install dependencies.
+5. Verify CUDA/PyTorch sees the GPU.
+
+Useful checks:
+
+python --version
+nvidia-smi
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+
+Then run the smoke test from the runbook. Do not start full training until the
+smoke test works.
+
+
+Phase 5: Running experiments safely
+-----------------------------------
+Use tmux:
+
+tmux new -s exp1
+
+Inside tmux, run the training command. Log stdout/stderr:
+
+python path/to/train_script.py [ARGS] 2>&1 | tee logs/exp1.log
+
+Detach from tmux:
+
+Ctrl-b then d
+
+Check later:
+
+tmux attach -t exp1
+
+Monitor GPU:
+
+nvidia-smi
+watch -n 10 nvidia-smi
+
+Sync results back to university cloud periodically:
+
+rsync -avh --partial --info=progress2 /runpod/results/ /university/results/
+
+
+Phase 6: What to report back to the user
+----------------------------------------
+Please give the user a short, concrete summary with:
+
+1. Recommended RunPod GPU type and why.
+2. Minimum storage size to start with.
+3. Exact files/folders to copy first.
+4. Exact smoke-test command.
+5. Exact full experiment command.
+6. Expected cost per hour and rough expected runtime, if estimable.
+7. Any risks or missing information.
+
+
+Questions to answer before the user rents a GPU
+-----------------------------------------------
+1. What is the minimum GPU VRAM needed?
+2. Can a 24 GB GPU run the experiment, or is A100 80GB needed?
+3. Which subset of the 1-1.5 TB data is needed for the next experiment?
+4. Are all current scripts committed to git?
+5. Can experiments resume from checkpoints?
+6. Where should final results/checkpoints be stored permanently?
+
+
+Immediate task for the university-cloud agent
+---------------------------------------------
+Please start by producing EXPERIMENTS_RUNBOOK.md with the Phase 1 information.
+Do not launch any expensive transfer or cloud job until the user has reviewed
+the runbook and confirmed the RunPod account/storage/GPU choice.

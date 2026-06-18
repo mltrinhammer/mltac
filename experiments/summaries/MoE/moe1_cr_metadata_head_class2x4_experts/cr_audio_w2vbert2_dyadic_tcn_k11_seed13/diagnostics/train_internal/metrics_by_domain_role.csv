@@ -1,0 +1,5 @@
+domain,role,head,n_frames,kappa,macro_f1,weighted_f1,accuracy
+CR,purple,task,384143,0.26775962305566214,0.4238061546143059,0.7111033236041993,0.705344103628076
+CR,purple,social,384143,0.1692884539322064,0.230078441231672,0.6594124995653027,0.7139893216848934
+CR,yellow,task,0,nan,nan,nan,nan
+CR,yellow,social,0,nan,nan,nan,nan

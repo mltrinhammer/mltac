@@ -1,0 +1,3 @@
+domain,mode,feature,head,n_frames,kappa,accuracy,weights
+CR,prob_two_head,combined,task,65346,0.4222377639114278,0.7994980564992501,"{""task"": [0.7, 0.3, 0.0]}"
+CR,prob_two_head,combined,social,17295,0.14654194370155085,0.4578779994217982,"{""social"": [0.6, 0.4, 0.0]}"

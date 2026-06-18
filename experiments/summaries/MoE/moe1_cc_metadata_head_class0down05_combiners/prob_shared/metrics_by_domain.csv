@@ -1,0 +1,3 @@
+domain,mode,feature,head,n_frames,kappa,accuracy,weights
+CC,prob_shared,combined,task,215692,0.3386792044688794,0.5773278563878123,"{""all"": [0.8, 0.15, 0.05]}"
+CC,prob_shared,combined,social,184616,0.28754125618213744,0.5580664731117563,"{""all"": [0.8, 0.15, 0.05]}"

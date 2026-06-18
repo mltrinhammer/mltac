@@ -1,0 +1,26 @@
+{
+  "mode": "val_shared_upper",
+  "domain": "CR",
+  "features": [
+    "visual_videomae",
+    "audio_w2vbert2",
+    "text_xlm_roberta"
+  ],
+  "step": 0.05,
+  "combine_kind": "logit",
+  "fit_split": "val",
+  "optimistic_upper_bound": true,
+  "fit_loss_by_group": {
+    "all": 1.045615674824324
+  },
+  "val_mean_kappa": 0.19166438186918716,
+  "weights_by_group": {
+    "all": [
+      0.35,
+      0.5,
+      0.15
+    ]
+  },
+  "n_train_rows": 768286,
+  "n_val_rows": 82641
+}

@@ -1,0 +1,38 @@
+{
+  "domain": "CR",
+  "expert_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cr_experts",
+  "output_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cr_temporal_attention_router",
+  "run_name": "temporal_attention_router_smoke",
+  "input_kind": "logits",
+  "combine_kind": "logits",
+  "chunk_size": 256,
+  "stride": 256,
+  "hidden_dim": 32,
+  "layers": 1,
+  "heads": 4,
+  "dropout": 0.15,
+  "epochs": 1,
+  "batch_size": 2,
+  "lr": 0.0003,
+  "weight_decay": 0.0001,
+  "entropy_penalty": 0.0,
+  "smoothness_penalty": 0.001,
+  "max_train_chunks": 2,
+  "seed": 13,
+  "device": "cpu",
+  "dry_run": false,
+  "features": [
+    "visual_videomae",
+    "audio_w2vbert2",
+    "text_xlm_roberta"
+  ],
+  "target_heads": [
+    "task",
+    "social"
+  ],
+  "n_train_rows": 768286,
+  "n_val_rows": 82641,
+  "n_train_sequences": 24,
+  "n_val_sequences": 9,
+  "n_train_chunks": 2
+}

@@ -1,0 +1,3 @@
+domain,mode,feature,head,n_frames,kappa,accuracy,mean_val_weights
+CR,val_metadata_router_upper,combined,task,65346,0.5143158671884901,0.7720748018241361,"{""task"": [0.6290603280067444, 0.1295323222875595, 0.2414073795080185]}"
+CR,val_metadata_router_upper,combined,social,17295,0.14222368294755897,0.30453888407054064,"{""social"": [0.2580747604370117, 0.5517128109931946, 0.19021254777908325]}"

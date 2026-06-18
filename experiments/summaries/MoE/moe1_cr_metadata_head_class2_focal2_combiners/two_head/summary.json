@@ -1,0 +1,32 @@
+{
+  "mode": "two_head",
+  "domain": "CR",
+  "features": [
+    "visual_videomae",
+    "audio_w2vbert2",
+    "text_xlm_roberta"
+  ],
+  "step": 0.05,
+  "combine_kind": "logit",
+  "fit_split": "train",
+  "optimistic_upper_bound": false,
+  "fit_loss_by_group": {
+    "social": 0.7634130893851192,
+    "task": 0.747692664887389
+  },
+  "val_mean_kappa": 0.13983166865595711,
+  "weights_by_group": {
+    "social": [
+      0.35,
+      0.15,
+      0.5
+    ],
+    "task": [
+      0.35,
+      0.45,
+      0.2
+    ]
+  },
+  "n_train_rows": 768286,
+  "n_val_rows": 82641
+}

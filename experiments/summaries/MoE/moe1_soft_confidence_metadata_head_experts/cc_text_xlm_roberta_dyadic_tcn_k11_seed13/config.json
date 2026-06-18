@@ -1,0 +1,69 @@
+{
+  "manifest": [
+    "/work/ACM/mltac-main/ACM/MoE/moe_data_soft_labels/outputs/windows_w2400_s1200_by_domain/text_xlm_roberta/text_xlm_roberta_w2400_s1200_dyadic_cc.csv"
+  ],
+  "metadata": "/work/ACM/mltac-main/ACM/MoE/moe_data/outputs/participant_metadata.csv",
+  "metadata_mode": "age_gender",
+  "metadata_dropout": 0.2,
+  "output_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_soft_confidence_metadata_head_experts",
+  "run_name": "cc_text_xlm_roberta_dyadic_tcn_k11_seed13",
+  "train_split": "train_internal",
+  "val_split": "val_internal",
+  "test_split": "test_internal",
+  "hidden_channels": 64,
+  "levels": 5,
+  "kernel_size": 11,
+  "dropout": 0.2,
+  "causal_tcn": true,
+  "cr_social_weighting": "shared_inverse",
+  "cr_social_weight_cap": 5.0,
+  "cr_social_target_class0_weight": 1.0,
+  "cr_social_target_class2_weight": 2.0,
+  "cr_social_target_class3_weight": 0.5,
+  "cr_social_focal_gamma": 0.0,
+  "cr_social_class3_oversample": 1,
+  "batch_size": 32,
+  "epochs": 60,
+  "patience": 16,
+  "min_epochs": 24,
+  "min_delta": 0.005,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "num_workers": 0,
+  "max_cached_tensors": 2,
+  "mmap_cache_root": null,
+  "seed": 13,
+  "device": "cuda",
+  "resume": true,
+  "soft_label_mode": "soft_confidence",
+  "model": "dyadic_metadata_head",
+  "feature_set": "text_xlm_roberta",
+  "n_features_per_role": 768,
+  "metadata_fields": [
+    "age_z",
+    "gender_1",
+    "gender_2",
+    "gender_unknown"
+  ],
+  "metadata_stats": {
+    "age_mean": 6.775,
+    "age_std": 1.1288821904875639
+  },
+  "n_train_windows": 728,
+  "n_val_windows": 231,
+  "class_weights": {
+    "task": [
+      0.3917793035507202,
+      1.4318097829818726,
+      15.697216033935547,
+      1.4589588642120361
+    ],
+    "social": [
+      2.765106439590454,
+      3.3128275871276855,
+      0.8993061184883118,
+      1.4284344911575317,
+      0.3961246609687805
+    ]
+  }
+}

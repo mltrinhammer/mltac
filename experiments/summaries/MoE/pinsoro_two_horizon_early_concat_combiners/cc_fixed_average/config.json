@@ -1,0 +1,19 @@
+{
+  "architecture": "two_horizon_logit_combiner",
+  "mode": "fixed",
+  "weights_short": {
+    "task": 0.5,
+    "social": 0.5
+  },
+  "short_run": "ACM/MoE/experiments/pinsoro_two_horizon_early_concat/pinsoro_cc_audio_text_visual_projected_concat_short_horizon_seed13",
+  "long_run": "ACM/MoE/experiments/pinsoro_moe_settings_early_fusion/pinsoro_cc_audio_text_visual_projected_concat_dyadic_shared_moe_settings_seed13",
+  "n_aligned_rows": 400308,
+  "manifest": [
+    "ACM/MoE/moe_data/outputs/windows_w2400_s1200/audio_w2vbert2_w2400_s1200_dyadic.csv",
+    "ACM/MoE/moe_data/outputs/windows_w2400_s1200/text_xlm_roberta_w2400_s1200_dyadic.csv",
+    "ACM/MoE/moe_data/outputs/windows_w2400_s1200/visual_videomae_w2400_s1200_dyadic.csv"
+  ],
+  "train_split": "train_internal",
+  "val_split": "val_internal",
+  "domain_scope": "CC"
+}

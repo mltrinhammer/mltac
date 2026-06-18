@@ -1,0 +1,15 @@
+{
+  "cache_root": "/work/ACM/mltac-main/ACM/MoE/moe_data_soft_labels/cache/pinsoro",
+  "cc_expert_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cc_metadata_head_experts",
+  "cr_expert_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cr_metadata_head_experts",
+  "cc_combiner_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cc_metadata_head_combiners",
+  "cr_combiner_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cr_metadata_head_combiners",
+  "annotators": [
+    1,
+    2,
+    3
+  ],
+  "hmm_strength": 8.0,
+  "hmm_mix": 1.0,
+  "hmm_alpha": 1.0
+}

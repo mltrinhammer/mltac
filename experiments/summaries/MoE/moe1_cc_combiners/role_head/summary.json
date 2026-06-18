@@ -1,0 +1,44 @@
+{
+  "mode": "role_head",
+  "domain": "CC",
+  "features": [
+    "visual_videomae",
+    "audio_w2vbert2",
+    "text_xlm_roberta"
+  ],
+  "step": 0.05,
+  "combine_kind": "logit",
+  "fit_split": "train",
+  "optimistic_upper_bound": false,
+  "fit_loss_by_group": {
+    "purple_social": 0.6739144396388177,
+    "purple_task": 0.6329109234108551,
+    "yellow_social": 0.695634370878323,
+    "yellow_task": 0.6101206460872373
+  },
+  "val_mean_kappa": 0.35816007986551474,
+  "weights_by_group": {
+    "purple_social": [
+      0.35,
+      0.3,
+      0.35
+    ],
+    "purple_task": [
+      0.4,
+      0.2,
+      0.4
+    ],
+    "yellow_social": [
+      0.5,
+      0.15,
+      0.35
+    ],
+    "yellow_task": [
+      0.55,
+      0.15,
+      0.3
+    ]
+  },
+  "n_train_rows": 3186950,
+  "n_val_rows": 400308
+}

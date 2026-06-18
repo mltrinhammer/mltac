@@ -1,0 +1,3 @@
+group,head,n_frames,kappa,macro_f1,weighted_f1,accuracy
+overall,task,6132,0.09029342904549313,0.2588470289333135,0.55416357380142,0.49103065883887803
+overall,social,345,nan,0.2,1.0,1.0

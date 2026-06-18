@@ -1,0 +1,7 @@
+domain,mode,param,head,n_frames,accuracy,kappa,n_sequences,n_transitions,true_flips,pred_flips,true_flip_rate,pred_flip_rate,flip_rate_ratio,excess_flips,heldout_session
+CR,two_head_raw,none,task,16817,0.8429565320806327,0.31109565311482856,1,16816,2,337,0.00011893434823977165,0.020040437678401524,168.5,335,014
+CR,two_head_raw,none,social,0,nan,nan,0,0,0,0,nan,nan,0.0,0,014
+CR,two_head_hmm,mix=1;strength=8;alpha=1,task,16817,0.9002200154605459,0.4091747720839486,1,16816,2,6,0.00011893434823977165,0.00035680304471931494,3.0,4,014
+CR,two_head_hmm,mix=1;strength=8;alpha=1,social,0,nan,nan,0,0,0,0,nan,nan,0.0,0,014
+CR,two_head_hmm,mix=1;strength=8;alpha=1,mean,16817,nan,nan,1,16816,2,6,0.00011893434823977165,0.00035680304471931494,3.0,4,
+CR,two_head_raw,none,mean,16817,nan,nan,1,16816,2,337,0.00011893434823977165,0.020040437678401524,168.5,335,

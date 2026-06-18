@@ -1,0 +1,45 @@
+{
+  "selected_model": "metadata-head experts + logit two_head combiner",
+  "domains": [
+    {
+      "domain": "CC",
+      "n_rows": 400308,
+      "weights_by_head": {
+        "task": [
+          0.65,
+          0.15,
+          0.2
+        ],
+        "social": [
+          0.5,
+          0.3,
+          0.2
+        ]
+      },
+      "mean_head_kappa": 0.3223310305886096,
+      "task_kappa": 0.34220305796378864,
+      "social_kappa": 0.3024590032134306
+    },
+    {
+      "domain": "CR",
+      "n_rows": 82641,
+      "weights_by_head": {
+        "task": [
+          0.7,
+          0.15,
+          0.15
+        ],
+        "social": [
+          0.55,
+          0.1,
+          0.35
+        ]
+      },
+      "mean_head_kappa": 0.35198521500583824,
+      "task_kappa": 0.5611782431053908,
+      "social_kappa": 0.14279218690628567
+    }
+  ],
+  "combined_mean_head_kappa": 0.3371581227972239,
+  "output_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_error_analysis_metadata_head_two_head"
+}

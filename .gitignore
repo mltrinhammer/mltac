@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+.venv*/
+venv/
+env/
+
+# Heavy ML artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.joblib
+
+# Generated data/output trees
+processed/
+outputs/
+cache/
+artifacts/**
+!artifacts/README.md
+MoE/experiments/
+MoE/moe_data/
+MoE/moe_data_soft_labels/
+MoE/noxi_data/
+MoE/noxi_j_data/
+MoE/noxi_joint_settings/
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store

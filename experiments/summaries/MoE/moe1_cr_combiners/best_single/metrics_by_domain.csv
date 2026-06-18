@@ -1,0 +1,7 @@
+domain,mode,feature,head,n_frames,kappa,accuracy
+CR,best_single,visual_videomae,task,65346,0.45473570530315927,0.736265417929177
+CR,best_single,visual_videomae,social,17295,0.11335269218624613,0.27123446082682856
+CR,best_single,audio_w2vbert2,task,65346,0.18367938567683292,0.4683530744039421
+CR,best_single,audio_w2vbert2,social,17295,0.11521310321599247,0.2840705406186759
+CR,best_single,text_xlm_roberta,task,65346,0.2029211619086068,0.6698497230128853
+CR,best_single,text_xlm_roberta,social,17295,-0.007495274521004545,0.04885805145995953

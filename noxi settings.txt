@@ -1,0 +1,34 @@
+noxi settings 
+
+Parameter	Value
+Architecture	 
+Backbone	dyadic_shared TCN
+Fusion	gated (softmax gate per modality)
+Fusion channels	64
+TCN hidden channels	64
+TCN levels	4
+TCN kernel size	5
+Dropout	0.2
+Modality dropout	0.1
+Modalities	 
+audio_w2vbert2	1024-dim
+text_xlm_roberta	768-dim
+visual_videomae	1408-dim
+Training	 
+Loss	CCC-only (ccc_weight=1.0, mse_weight=0.0)
+Optimizer	AdamW (lr=1e-3, weight_decay=1e-4)
+Batch size	32
+Max epochs	30
+Early stopping	patience=6, min_delta=0.001, min_epochs=5
+Grad clipping	max_norm=5.0
+Seed	13
+Segmentation	 
+Windows (not turns)	sliding window
+Window size	500 frames (20s at 25Hz)
+Window stride	125 frames (5s)
+Min turn frames	5
+Data	 
+Train turns	12,734
+Val turns	3,847
+Train split	train_internal (NoXi + NoXiJ train)
+Val split	val_internal (NoXi + NoXiJ val)

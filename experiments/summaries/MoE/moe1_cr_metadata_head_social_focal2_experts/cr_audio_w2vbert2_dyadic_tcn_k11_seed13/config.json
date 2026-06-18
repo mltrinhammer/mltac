@@ -1,0 +1,66 @@
+{
+  "manifest": [
+    "/work/ACM/mltac-main/ACM/MoE/moe_data/outputs/windows_w2400_s1200_by_domain/audio_w2vbert2/audio_w2vbert2_w2400_s1200_dyadic_cr.csv"
+  ],
+  "metadata": "/work/ACM/mltac-main/ACM/MoE/moe_data/outputs/participant_metadata.csv",
+  "metadata_mode": "age_gender",
+  "metadata_dropout": 0.2,
+  "output_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_cr_metadata_head_social_focal2_experts",
+  "run_name": "cr_audio_w2vbert2_dyadic_tcn_k11_seed13",
+  "train_split": "train_internal",
+  "val_split": "val_internal",
+  "test_split": "test_internal",
+  "hidden_channels": 64,
+  "levels": 5,
+  "kernel_size": 11,
+  "dropout": 0.2,
+  "causal_tcn": true,
+  "cr_social_weighting": "shared_inverse",
+  "cr_social_weight_cap": 5.0,
+  "cr_social_target_class2_weight": 2.0,
+  "cr_social_target_class3_weight": 0.5,
+  "social_focal_gamma": 2.0,
+  "batch_size": 32,
+  "epochs": 60,
+  "patience": 16,
+  "min_epochs": 24,
+  "min_delta": 0.005,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "num_workers": 2,
+  "max_cached_tensors": 2,
+  "mmap_cache_root": "/work/ACM/mltac-main/ACM/MoE/moe_data/processed/domain_norm_mmap",
+  "seed": 13,
+  "device": "cuda",
+  "resume": true,
+  "model": "dyadic_metadata_head",
+  "feature_set": "audio_w2vbert2",
+  "n_features_per_role": 1024,
+  "metadata_fields": [
+    "age_z",
+    "gender_1",
+    "gender_2",
+    "gender_unknown"
+  ],
+  "metadata_stats": {
+    "age_mean": 6.833333333333333,
+    "age_std": 0.8975274678557508
+  },
+  "n_train_windows": 333,
+  "n_val_windows": 109,
+  "class_weights": {
+    "task": [
+      0.32506006956100464,
+      5.083946704864502,
+      7.319797992706299,
+      1.6939613819122314
+    ],
+    "social": [
+      0.3557722866535187,
+      8.768786430358887,
+      0.9365412592887878,
+      134.8816680908203,
+      0.0
+    ]
+  }
+}

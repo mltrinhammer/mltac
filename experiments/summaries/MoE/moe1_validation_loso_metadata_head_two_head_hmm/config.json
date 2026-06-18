@@ -1,0 +1,22 @@
+{
+  "domains": [
+    "CR",
+    "CC"
+  ],
+  "output_root": "/work/ACM/mltac-main/ACM/MoE/experiments/moe1_validation_loso_metadata_head_two_head_hmm",
+  "python": "/work/ACM/mltac-main/ACM/.venv-gpu/bin/python",
+  "gpus": "0,1",
+  "batch_size": 32,
+  "num_workers": 2,
+  "epochs": 60,
+  "min_epochs": 24,
+  "patience": 16,
+  "min_delta": 0.005,
+  "seed": 13,
+  "combiner_step": 0.05,
+  "hmm_strength": 8.0,
+  "hmm_mix": 1.0,
+  "hmm_alpha": 1.0,
+  "resume": true,
+  "dry_run": false
+}

@@ -1,0 +1,59 @@
+$ /tmp/torch-cu128/bin/python scripts/train_mpii_group_meanpool_multimodal_calibration.py --manifest MoE/noxi_joint_settings/manifests/group_meanpool/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxij_w500_s125_group_windows.csv --output-root MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep --run-name noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13 --train-split train_internal --val-split val_internal --test-splits test_internal --fusion-mode gated --fusion-channels 64 --modality-dropout 0.1 --hidden-channels 64 --levels 4 --kernel-size 5 --dropout 0.2 --encoder-sharing shared --prediction-interaction-scale 0.1 --batch-size 32 --epochs 15 --patience 4 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --mse-weight 0.0 --ccc-weight 1.0 --delta-mse-weight 0.0 --mean-calibration-weight 0.01 --std-calibration-weight 0.01 --excess-jitter-weight 0.0 --excess-jitter-threshold 0.01 --num-workers 2 --seed 13 --device cuda
+
+=== 2026-06-17 17:40:15 ===
+$ /tmp/torch-cu128/bin/python scripts/train_mpii_group_meanpool_multimodal_calibration.py --manifest MoE/noxi_joint_settings/manifests/group_meanpool/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxij_w500_s125_group_windows.csv --output-root MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep --run-name noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13 --train-split train_internal --val-split val_internal --test-splits test_internal --fusion-mode gated --fusion-channels 64 --modality-dropout 0.1 --hidden-channels 64 --levels 4 --kernel-size 5 --dropout 0.2 --encoder-sharing shared --prediction-interaction-scale 0.1 --batch-size 32 --epochs 15 --patience 4 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --mse-weight 0.0 --ccc-weight 1.0 --delta-mse-weight 0.0 --mean-calibration-weight 0.01 --std-calibration-weight 0.01 --excess-jitter-weight 0.0 --excess-jitter-threshold 0.01 --num-workers 2 --seed 13 --device cuda
+epoch=001 train_loss=0.52853 val_ccc=0.18867 best_epoch=1
+epoch=002 train_loss=0.33087 val_ccc=0.32509 best_epoch=2
+epoch=003 train_loss=0.27614 val_ccc=0.44925 best_epoch=3
+epoch=004 train_loss=0.22874 val_ccc=0.33210 best_epoch=3
+epoch=005 train_loss=0.21715 val_ccc=0.37968 best_epoch=3
+epoch=006 train_loss=0.17966 val_ccc=0.56022 best_epoch=6
+epoch=007 train_loss=0.17064 val_ccc=0.39337 best_epoch=6
+epoch=008 train_loss=0.15988 val_ccc=0.51534 best_epoch=6
+epoch=009 train_loss=0.13761 val_ccc=0.46321 best_epoch=6
+epoch=010 train_loss=0.13910 val_ccc=0.43843 best_epoch=6
+early_stop epoch=010 best_epoch=006 best_val_ccc=0.56022
+test_split=test_internal sessions=10
+Run directory: MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13
+$ /tmp/torch-cu128/bin/python MoE/noxi_joint_settings/evaluate_group_ema_smoothing.py --run-dir MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13 --alphas 1.0 0.9 0.7 0.5 0.3 0.2 0.1 0.05 --batch-size 32 --num-workers 2 --device cuda
+
+=== 2026-06-17 18:08:50 ===
+$ /tmp/torch-cu128/bin/python MoE/noxi_joint_settings/evaluate_group_ema_smoothing.py --run-dir MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13 --alphas 1.0 0.9 0.7 0.5 0.3 0.2 0.1 0.05 --batch-size 32 --num-workers 2 --device cuda
+run_dir=MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13
+best_alpha=0.05 best_val_ccc=0.571735
+output_dir=MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean001_std001_jit000_seed13/ema_smoothing
+$ /tmp/torch-cu128/bin/python scripts/train_mpii_group_meanpool_multimodal_calibration.py --manifest MoE/noxi_joint_settings/manifests/group_meanpool/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxij_w500_s125_group_windows.csv --output-root MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep --run-name noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13 --train-split train_internal --val-split val_internal --test-splits test_internal --fusion-mode gated --fusion-channels 64 --modality-dropout 0.1 --hidden-channels 64 --levels 4 --kernel-size 5 --dropout 0.2 --encoder-sharing shared --prediction-interaction-scale 0.1 --batch-size 32 --epochs 15 --patience 4 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --mse-weight 0.0 --ccc-weight 1.0 --delta-mse-weight 0.0 --mean-calibration-weight 0.05 --std-calibration-weight 0.05 --excess-jitter-weight 0.0 --excess-jitter-threshold 0.01 --num-workers 2 --seed 13 --device cuda
+
+=== 2026-06-17 18:09:49 ===
+$ /tmp/torch-cu128/bin/python scripts/train_mpii_group_meanpool_multimodal_calibration.py --manifest MoE/noxi_joint_settings/manifests/group_meanpool/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxij_w500_s125_group_windows.csv --output-root MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep --run-name noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13 --train-split train_internal --val-split val_internal --test-splits test_internal --fusion-mode gated --fusion-channels 64 --modality-dropout 0.1 --hidden-channels 64 --levels 4 --kernel-size 5 --dropout 0.2 --encoder-sharing shared --prediction-interaction-scale 0.1 --batch-size 32 --epochs 15 --patience 4 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --mse-weight 0.0 --ccc-weight 1.0 --delta-mse-weight 0.0 --mean-calibration-weight 0.05 --std-calibration-weight 0.05 --excess-jitter-weight 0.0 --excess-jitter-threshold 0.01 --num-workers 2 --seed 13 --device cuda
+epoch=001 train_loss=0.53500 val_ccc=0.33754 best_epoch=1
+epoch=002 train_loss=0.33546 val_ccc=0.31878 best_epoch=1
+epoch=003 train_loss=0.25734 val_ccc=0.34653 best_epoch=3
+epoch=004 train_loss=0.21896 val_ccc=0.37632 best_epoch=4
+epoch=005 train_loss=0.20972 val_ccc=0.46979 best_epoch=5
+epoch=006 train_loss=0.17025 val_ccc=0.44444 best_epoch=5
+epoch=007 train_loss=0.16030 val_ccc=0.49121 best_epoch=7
+epoch=008 train_loss=0.15599 val_ccc=0.45490 best_epoch=7
+epoch=009 train_loss=0.14049 val_ccc=0.46500 best_epoch=7
+epoch=010 train_loss=0.13448 val_ccc=0.37383 best_epoch=7
+epoch=011 train_loss=0.11713 val_ccc=0.43574 best_epoch=7
+early_stop epoch=011 best_epoch=007 best_val_ccc=0.49121
+test_split=test_internal sessions=10
+Run directory: MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13
+$ /tmp/torch-cu128/bin/python MoE/noxi_joint_settings/evaluate_group_ema_smoothing.py --run-dir MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13 --alphas 1.0 0.9 0.7 0.5 0.3 0.2 0.1 0.05 --batch-size 32 --num-workers 2 --device cuda
+
+=== 2026-06-17 18:40:20 ===
+$ /tmp/torch-cu128/bin/python MoE/noxi_joint_settings/evaluate_group_ema_smoothing.py --run-dir MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13 --alphas 1.0 0.9 0.7 0.5 0.3 0.2 0.1 0.05 --batch-size 32 --num-workers 2 --device cuda
+run_dir=MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13
+best_alpha=0.05 best_val_ccc=0.499594
+output_dir=MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep/noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean005_std005_jit000_seed13/ema_smoothing
+$ /tmp/torch-cu128/bin/python scripts/train_mpii_group_meanpool_multimodal_calibration.py --manifest MoE/noxi_joint_settings/manifests/group_meanpool/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxij_w500_s125_group_windows.csv --output-root MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep --run-name noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean010_std005_jit000_seed13 --train-split train_internal --val-split val_internal --test-splits test_internal --fusion-mode gated --fusion-channels 64 --modality-dropout 0.1 --hidden-channels 64 --levels 4 --kernel-size 5 --dropout 0.2 --encoder-sharing shared --prediction-interaction-scale 0.1 --batch-size 32 --epochs 15 --patience 4 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --mse-weight 0.0 --ccc-weight 1.0 --delta-mse-weight 0.0 --mean-calibration-weight 0.10 --std-calibration-weight 0.05 --excess-jitter-weight 0.0 --excess-jitter-threshold 0.01 --num-workers 2 --seed 13 --device cuda
+
+=== 2026-06-17 18:41:17 ===
+$ /tmp/torch-cu128/bin/python scripts/train_mpii_group_meanpool_multimodal_calibration.py --manifest MoE/noxi_joint_settings/manifests/group_meanpool/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxij_w500_s125_group_windows.csv --output-root MoE/noxi_joint_settings/experiments_group_meanpool_calibration_sweep --run-name noxij_audio_text_visual_w500_s125_postpred_linear_shared_encoder_cal_mean010_std005_jit000_seed13 --train-split train_internal --val-split val_internal --test-splits test_internal --fusion-mode gated --fusion-channels 64 --modality-dropout 0.1 --hidden-channels 64 --levels 4 --kernel-size 5 --dropout 0.2 --encoder-sharing shared --prediction-interaction-scale 0.1 --batch-size 32 --epochs 15 --patience 4 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --mse-weight 0.0 --ccc-weight 1.0 --delta-mse-weight 0.0 --mean-calibration-weight 0.10 --std-calibration-weight 0.05 --excess-jitter-weight 0.0 --excess-jitter-threshold 0.01 --num-workers 2 --seed 13 --device cuda
+epoch=001 train_loss=0.58816 val_ccc=0.11163 best_epoch=1
+epoch=002 train_loss=0.32820 val_ccc=0.41402 best_epoch=2
+epoch=003 train_loss=0.27123 val_ccc=0.33985 best_epoch=2
+epoch=004 train_loss=0.23193 val_ccc=0.46963 best_epoch=4
+epoch=005 train_loss=0.20866 val_ccc=0.39955 best_epoch=4
+epoch=006 train_loss=0.18212 val_ccc=0.39353 best_epoch=4
