@@ -32,6 +32,7 @@ if str(THIS_DIR) not in sys.path:
 
 from src.acm_pipeline.models_tcn import TemporalBlock  # noqa: E402
 from src.acm_pipeline.pinsoro_data import (  # noqa: E402
+    PinSoRoWindow,
     PinSoRoWindowDataset,
     read_pinsoro_window_manifests,
 )
@@ -361,6 +362,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cr-social-weight-cap", type=float, default=5.0)
     parser.add_argument("--cr-social-target-class2-weight", type=float, default=2.0)
     parser.add_argument("--cr-social-target-class3-weight", type=float, default=0.5)
+    parser.add_argument("--cr-social-class3-oversample", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--patience", type=int, default=6)
@@ -482,6 +484,56 @@ def active_head_organizer_score(run_dir: Path, active_heads: tuple[str, ...]) ->
     return float(np.mean(kappas)) if kappas else float("nan")
 
 
+def window_has_cr_social_class3(window: PinSoRoWindow, dataset: PinSoRoWindowDataset) -> bool:
+    if window.domain != "CR":
+        return False
+    for role_idx, supervised in enumerate(window.supervised):
+        if not supervised:
+            continue
+        data = dataset.load_full_role(window, role_idx)
+        labels = np.asarray(data["social_y"], dtype=np.int64)[window.start_frame : window.end_frame]
+        mask = np.asarray(data["social_mask"])[window.start_frame : window.end_frame].astype(bool)
+        if np.any(mask & (labels == 3)):
+            return True
+    return False
+
+def oversample_cr_social_class3_windows(
+    windows: list[PinSoRoWindow],
+    args: argparse.Namespace,
+    dataset_cls: type[PinSoRoWindowDataset],
+    metadata_table: dict[tuple[str, str, str], dict[str, str]],
+    age_mean: float,
+    age_std: float,
+) -> list[PinSoRoWindow]:
+    multiplier = max(1, int(args.cr_social_class3_oversample))
+    if multiplier <= 1:
+        return windows
+    if args.metadata_mode != "none":
+        probe_dataset = dataset_cls(
+            windows,
+            args.max_cached_tensors,
+            args.mmap_cache_root,
+            PROJECT_ROOT,
+            metadata_mode=args.metadata_mode,
+            metadata_table=metadata_table,
+            age_mean=age_mean,
+            age_std=age_std,
+        )
+    else:
+        probe_dataset = dataset_cls(windows, args.max_cached_tensors, args.mmap_cache_root, PROJECT_ROOT)
+    class3_windows = [window for window in windows if window_has_cr_social_class3(window, probe_dataset)]
+    if not class3_windows:
+        print("CR social class-3 oversampling requested, but no matching windows found.", flush=True)
+        return windows
+    expanded = list(windows) + class3_windows * (multiplier - 1)
+    print(
+        f"CR social class-3 oversampling: base_windows={len(windows)} "
+        f"class3_windows={len(class3_windows)} multiplier={multiplier} expanded_windows={len(expanded)}",
+        flush=True,
+    )
+    return expanded
+
+
 def main() -> None:
     args = parse_args()
     active_heads = tuple(args.active_heads)
@@ -507,6 +559,15 @@ def main() -> None:
     metadata_table = read_participant_metadata(args.metadata) if args.metadata is not None else {}
     age_mean, age_std = participant_age_stats(train_windows, metadata_table)
     dataset_cls = RoleMetadataPinSoRoWindowDataset if args.metadata_mode != "none" else PinSoRoWindowDataset
+    train_windows = oversample_cr_social_class3_windows(
+        train_windows,
+        args,
+        dataset_cls,
+        metadata_table,
+        age_mean,
+        age_std,
+    )
+
     if args.metadata_mode != "none":
         train_dataset = dataset_cls(
             train_windows,

@@ -276,11 +276,11 @@ def build_model(args: argparse.Namespace, modality_dims: dict[str, int]) -> torc
 
 def masked_delta_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     mask = mask.bool()
-    adjacent_mask = mask[1:] & mask[:-1]
+    adjacent_mask = mask[:, 1:] & mask[:, :-1]
     if not torch.any(adjacent_mask):
         return torch.zeros((), device=pred.device, dtype=pred.dtype)
-    pred_delta = pred[1:] - pred[:-1]
-    target_delta = target[1:] - target[:-1]
+    pred_delta = pred[:, 1:] - pred[:, :-1]
+    target_delta = target[:, 1:] - target[:, :-1]
     return (pred_delta[adjacent_mask] - target_delta[adjacent_mask]).pow(2).mean()
 
 

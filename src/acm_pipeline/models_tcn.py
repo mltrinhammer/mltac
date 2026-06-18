@@ -184,6 +184,198 @@ class DyadicTCNRegressor(nn.Module):
         return self.head(self.tcn(x)).transpose(1, 2)
 
 
+class DyadicRoleHeadTCNRegressor(nn.Module):
+    """Shared dyadic encoder over paired input with role-specific heads."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_channels: int = 64,
+        levels: int = 4,
+        kernel_size: int = 5,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+        channels = [input_dim] + [hidden_channels] * levels
+        blocks = []
+        for idx in range(levels):
+            blocks.append(
+                TemporalBlock(
+                    in_channels=channels[idx],
+                    out_channels=channels[idx + 1],
+                    kernel_size=kernel_size,
+                    dilation=2**idx,
+                    dropout=dropout,
+                )
+            )
+        self.tcn = nn.Sequential(*blocks)
+        self.novice_head = nn.Conv1d(hidden_channels, 1, kernel_size=1)
+        self.expert_head = nn.Conv1d(hidden_channels, 1, kernel_size=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        hidden = self.tcn(x)
+        novice_pred = self.novice_head(hidden)
+        expert_pred = self.expert_head(hidden)
+        return torch.cat([novice_pred, expert_pred], dim=1).transpose(1, 2)
+
+
+class GatedPartnerTCNRegressor(nn.Module):
+    """Shared role encoder with learned partner gating and role-specific heads."""
+
+    def __init__(
+        self,
+        n_features_per_role: int,
+        hidden_channels: int = 64,
+        levels: int = 4,
+        kernel_size: int = 5,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+        self.n_features_per_role = n_features_per_role
+        channels = [n_features_per_role] + [hidden_channels] * levels
+        blocks = []
+        for idx in range(levels):
+            blocks.append(
+                TemporalBlock(
+                    in_channels=channels[idx],
+                    out_channels=channels[idx + 1],
+                    kernel_size=kernel_size,
+                    dilation=2**idx,
+                    dropout=dropout,
+                )
+            )
+        self.encoder = nn.Sequential(*blocks)
+        self.novice_gate = nn.Conv1d(hidden_channels * 2, hidden_channels, kernel_size=1)
+        self.expert_gate = nn.Conv1d(hidden_channels * 2, hidden_channels, kernel_size=1)
+        self.novice_head = nn.Conv1d(hidden_channels * 2, 1, kernel_size=1)
+        self.expert_head = nn.Conv1d(hidden_channels * 2, 1, kernel_size=1)
+
+    def _role_prediction(
+        self,
+        target_hidden: torch.Tensor,
+        partner_hidden: torch.Tensor,
+        gate_layer: nn.Conv1d,
+        head_layer: nn.Conv1d,
+    ) -> torch.Tensor:
+        gate_input = torch.cat([target_hidden, partner_hidden], dim=1)
+        gate = torch.sigmoid(gate_layer(gate_input))
+        gated_partner = gate * partner_hidden
+        return head_layer(torch.cat([target_hidden, gated_partner], dim=1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        novice_x = x[:, : self.n_features_per_role]
+        expert_x = x[:, self.n_features_per_role : 2 * self.n_features_per_role]
+        novice_hidden = self.encoder(novice_x)
+        expert_hidden = self.encoder(expert_x)
+        novice_pred = self._role_prediction(
+            novice_hidden, expert_hidden, self.novice_gate, self.novice_head
+        )
+        expert_pred = self._role_prediction(
+            expert_hidden, novice_hidden, self.expert_gate, self.expert_head
+        )
+        return torch.cat([novice_pred, expert_pred], dim=1).transpose(1, 2)
+
+
+class SharedEncoderRoleAttentionTCNRegressor(nn.Module):
+    """Shared role encoder with role-specific self/partner/joint attention heads."""
+
+    def __init__(
+        self,
+        n_features_per_role: int,
+        hidden_channels: int = 64,
+        levels: int = 4,
+        kernel_size: int = 5,
+        dropout: float = 0.2,
+        attention_context: str = "joint",
+        attention_heads: int = 4,
+        attention_past_frames: int | None = 1500,
+        exclude_current_frame: bool = False,
+    ) -> None:
+        super().__init__()
+        if attention_context not in {"self", "partner", "joint"}:
+            raise ValueError(f"Unsupported attention_context: {attention_context}")
+        if hidden_channels % attention_heads != 0:
+            raise ValueError("hidden_channels must be divisible by attention_heads.")
+        self.n_features_per_role = n_features_per_role
+        self.attention_context = attention_context
+        self.attention_past_frames = attention_past_frames
+        self.exclude_current_frame = exclude_current_frame
+
+        channels = [n_features_per_role] + [hidden_channels] * levels
+        blocks = []
+        for idx in range(levels):
+            blocks.append(
+                TemporalBlock(
+                    in_channels=channels[idx],
+                    out_channels=channels[idx + 1],
+                    kernel_size=kernel_size,
+                    dilation=2**idx,
+                    dropout=dropout,
+                )
+            )
+        self.encoder = nn.Sequential(*blocks)
+        self.novice_attention = nn.MultiheadAttention(
+            hidden_channels, attention_heads, dropout=dropout, batch_first=True
+        )
+        self.expert_attention = nn.MultiheadAttention(
+            hidden_channels, attention_heads, dropout=dropout, batch_first=True
+        )
+        self.novice_head = nn.Conv1d(hidden_channels * 2, 1, kernel_size=1)
+        self.expert_head = nn.Conv1d(hidden_channels * 2, 1, kernel_size=1)
+
+    def _attention_mask(self, time_len: int, n_sources: int, device: torch.device) -> torch.Tensor:
+        query_t = torch.arange(time_len, device=device).unsqueeze(1)
+        source_t = torch.arange(time_len, device=device).repeat(n_sources).unsqueeze(0)
+        lag = query_t - source_t
+        allowed = lag >= 0
+        if self.exclude_current_frame:
+            allowed &= lag > 0
+        if self.attention_past_frames is not None:
+            allowed &= lag <= self.attention_past_frames
+        empty_rows = ~torch.any(allowed, dim=1)
+        if torch.any(empty_rows):
+            allowed[empty_rows, 0] = True
+        return ~allowed
+
+    def _context_sequence(self, target_hidden: torch.Tensor, partner_hidden: torch.Tensor) -> torch.Tensor:
+        if self.attention_context == "self":
+            return target_hidden
+        if self.attention_context == "partner":
+            return partner_hidden
+        return torch.cat([target_hidden, partner_hidden], dim=1)
+
+    def _attend(
+        self,
+        attention: nn.MultiheadAttention,
+        target_hidden_bt: torch.Tensor,
+        partner_hidden_bt: torch.Tensor,
+    ) -> torch.Tensor:
+        context = self._context_sequence(target_hidden_bt, partner_hidden_bt)
+        n_sources = context.shape[1] // target_hidden_bt.shape[1]
+        mask = self._attention_mask(target_hidden_bt.shape[1], n_sources, target_hidden_bt.device)
+        attended, _weights = attention(
+            query=target_hidden_bt,
+            key=context,
+            value=context,
+            attn_mask=mask,
+            need_weights=False,
+        )
+        return attended
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        novice_x = x[:, : self.n_features_per_role]
+        expert_x = x[:, self.n_features_per_role : 2 * self.n_features_per_role]
+        novice_hidden = self.encoder(novice_x)
+        expert_hidden = self.encoder(expert_x)
+        novice_bt = novice_hidden.transpose(1, 2)
+        expert_bt = expert_hidden.transpose(1, 2)
+        novice_attended = self._attend(self.novice_attention, novice_bt, expert_bt)
+        expert_attended = self._attend(self.expert_attention, expert_bt, novice_bt)
+        novice_pred = self.novice_head(torch.cat([novice_hidden, novice_attended.transpose(1, 2)], dim=1))
+        expert_pred = self.expert_head(torch.cat([expert_hidden, expert_attended.transpose(1, 2)], dim=1))
+        return torch.cat([novice_pred, expert_pred], dim=1).transpose(1, 2)
+
+
 class RoleAttentionTCNRegressor(nn.Module):
     """Separate role TCNs with role-specific self/partner/joint attention heads."""
 
@@ -449,7 +641,7 @@ class MultimodalTurnTCNRegressor(nn.Module):
         exclude_current_frame: bool = False,
     ) -> None:
         super().__init__()
-        if backbone_model not in {"simple", "dyadic_shared", "attention"}:
+        if backbone_model not in {"simple", "dyadic_shared", "dyadic_role_heads", "gated_partner", "shared_attention", "attention"}:
             raise ValueError(f"Unsupported backbone_model: {backbone_model}")
 
         self.backbone_model = backbone_model
@@ -477,6 +669,24 @@ class MultimodalTurnTCNRegressor(nn.Module):
                 levels=levels,
                 kernel_size=kernel_size,
                 dropout=dropout,
+            )
+        elif backbone_model == "dyadic_role_heads":
+            self.backbone = DyadicRoleHeadTCNRegressor(
+                input_dim=2 * fused_features_per_role,
+                hidden_channels=hidden_channels,
+                levels=levels,
+                kernel_size=kernel_size,
+                dropout=dropout,
+            )
+        elif backbone_model == "gated_partner":
+            self.backbone = GatedPartnerTCNRegressor(**common)
+        elif backbone_model == "shared_attention":
+            self.backbone = SharedEncoderRoleAttentionTCNRegressor(
+                **common,
+                attention_context=attention_context,
+                attention_heads=attention_heads,
+                attention_past_frames=attention_past_frames,
+                exclude_current_frame=exclude_current_frame,
             )
         else:
             self.backbone = RoleAttentionTCNRegressor(

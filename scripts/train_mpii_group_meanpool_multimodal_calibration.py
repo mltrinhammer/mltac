@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--encoder-sharing", choices=("shared", "separate"), default="shared")
     parser.add_argument("--max-role-encoders", type=int, default=8)
+    parser.add_argument("--prediction-head-sharing", choices=("shared", "role_specific"), default="shared")
     parser.add_argument("--prediction-interaction-scale", type=float, default=0.1)
     parser.add_argument("--metadata", type=Path, help="Optional role-level metadata CSV keyed by dataset/session_id/role.")
     parser.add_argument("--metadata-mode", choices=("age_gender_language", "age_gender", "language_only"), default="age_gender_language")
@@ -75,6 +76,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mean-calibration-weight", type=float, default=0.0)
     parser.add_argument("--std-calibration-weight", type=float, default=0.0)
     parser.add_argument("--excess-jitter-weight", type=float, default=0.0)
+    for role in ("novice", "expert"):
+        parser.add_argument(f"--{role}-ccc-weight", type=float, default=None)
+        parser.add_argument(f"--{role}-mse-weight", type=float, default=None)
+        parser.add_argument(f"--{role}-delta-mse-weight", type=float, default=None)
+        parser.add_argument(f"--{role}-mean-calibration-weight", type=float, default=None)
+        parser.add_argument(f"--{role}-std-calibration-weight", type=float, default=None)
+        parser.add_argument(f"--{role}-excess-jitter-weight", type=float, default=None)
     parser.add_argument(
         "--excess-jitter-threshold",
         type=float,
@@ -276,6 +284,7 @@ def build_model(args: argparse.Namespace, modality_dims: dict[str, int]) -> torc
         dropout=args.dropout,
         encoder_sharing=args.encoder_sharing,
         max_role_encoders=args.max_role_encoders,
+        prediction_head_sharing=args.prediction_head_sharing,
         prediction_interaction_scale=args.prediction_interaction_scale,
         metadata_dim=getattr(args, "metadata_dim", 0),
         metadata_embedding_dim=args.metadata_embedding_dim,
@@ -285,11 +294,11 @@ def build_model(args: argparse.Namespace, modality_dims: dict[str, int]) -> torc
 
 def masked_delta_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     mask = mask.bool()
-    adjacent_mask = mask[1:] & mask[:-1]
+    adjacent_mask = mask[:, 1:] & mask[:, :-1]
     if not torch.any(adjacent_mask):
         return torch.zeros((), device=pred.device, dtype=pred.dtype)
-    pred_delta = pred[1:] - pred[:-1]
-    target_delta = target[1:] - target[:-1]
+    pred_delta = pred[:, 1:] - pred[:, :-1]
+    target_delta = target[:, 1:] - target[:, :-1]
     return (pred_delta[adjacent_mask] - target_delta[adjacent_mask]).pow(2).mean()
 
 
@@ -323,19 +332,42 @@ def masked_excess_jitter_loss(
     threshold: float,
 ) -> torch.Tensor:
     mask = mask.bool()
-    adjacent_mask = mask[1:] & mask[:-1]
+    adjacent_mask = mask[:, 1:] & mask[:, :-1]
     if not torch.any(adjacent_mask):
         return torch.zeros((), device=pred.device, dtype=pred.dtype)
-    pred_delta = (pred[1:] - pred[:-1]).abs()
+    pred_delta = (pred[:, 1:] - pred[:, :-1]).abs()
     excess = torch.relu(pred_delta - float(threshold))
     return excess[adjacent_mask].pow(2).mean()
 
 
-def train_one_epoch(
-    model: torch.nn.Module,
-    loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    device: torch.device,
+def role_mask_from_orders(loss_mask: torch.Tensor, role_orders: list[list[str]], role: str) -> torch.Tensor:
+    role_mask = torch.zeros_like(loss_mask)
+    for row_idx, order in enumerate(role_orders):
+        if role not in order:
+            continue
+        role_idx = order.index(role)
+        role_mask[row_idx, :, role_idx] = loss_mask[row_idx, :, role_idx]
+    return role_mask
+
+def role_value(args: argparse.Namespace, role: str, name: str, default: float) -> float:
+    value = getattr(args, f"{role}_{name}")
+    return float(default if value is None else value)
+
+def has_role_loss_overrides(args: argparse.Namespace) -> bool:
+    names = (
+        "ccc_weight",
+        "mse_weight",
+        "delta_mse_weight",
+        "mean_calibration_weight",
+        "std_calibration_weight",
+        "excess_jitter_weight",
+    )
+    return any(getattr(args, f"{role}_{name}") is not None for role in ("novice", "expert") for name in names)
+
+def weighted_loss_for_mask(
+    pred: torch.Tensor,
+    y: torch.Tensor,
+    loss_mask: torch.Tensor,
     ccc_weight: float,
     mse_weight: float,
     delta_mse_weight: float,
@@ -343,6 +375,33 @@ def train_one_epoch(
     std_calibration_weight: float,
     excess_jitter_weight: float,
     excess_jitter_threshold: float,
+) -> torch.Tensor:
+    loss = mse_weight * masked_mse_loss(pred, y, loss_mask) + ccc_weight * ccc_loss(pred, y, loss_mask)
+    if delta_mse_weight > 0.0:
+        loss = loss + delta_mse_weight * masked_delta_mse_loss(pred, y, loss_mask)
+    if mean_calibration_weight > 0.0 or std_calibration_weight > 0.0:
+        loss = loss + masked_mean_std_calibration_loss(
+            pred,
+            y,
+            loss_mask,
+            mean_calibration_weight,
+            std_calibration_weight,
+        )
+    if excess_jitter_weight > 0.0:
+        loss = loss + excess_jitter_weight * masked_excess_jitter_loss(
+            pred,
+            loss_mask,
+            excess_jitter_threshold,
+        )
+    return loss
+
+
+def train_one_epoch(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    args: argparse.Namespace,
 ) -> float:
     model.train()
     losses: list[float] = []
@@ -356,22 +415,41 @@ def train_one_epoch(
         if metadata is not None:
             metadata = metadata.to(device)
         pred = model(x_modalities, role_mask=role_mask, metadata=metadata)
-        loss = mse_weight * masked_mse_loss(pred, y, loss_mask) + ccc_weight * ccc_loss(pred, y, loss_mask)
-        if delta_mse_weight > 0.0:
-            loss = loss + delta_mse_weight * masked_delta_mse_loss(pred, y, loss_mask)
-        if mean_calibration_weight > 0.0 or std_calibration_weight > 0.0:
-            loss = loss + masked_mean_std_calibration_loss(
+        if has_role_loss_overrides(args):
+            role_losses = []
+            for role in ("novice", "expert"):
+                role_loss_mask = role_mask_from_orders(loss_mask, batch["role_orders"], role)
+                if not torch.any(role_loss_mask):
+                    continue
+                role_losses.append(
+                    weighted_loss_for_mask(
+                        pred,
+                        y,
+                        role_loss_mask,
+                        role_value(args, role, "ccc_weight", args.ccc_weight),
+                        role_value(args, role, "mse_weight", args.mse_weight),
+                        role_value(args, role, "delta_mse_weight", args.delta_mse_weight),
+                        role_value(args, role, "mean_calibration_weight", args.mean_calibration_weight),
+                        role_value(args, role, "std_calibration_weight", args.std_calibration_weight),
+                        role_value(args, role, "excess_jitter_weight", args.excess_jitter_weight),
+                        args.excess_jitter_threshold,
+                    )
+                )
+            if not role_losses:
+                continue
+            loss = torch.stack(role_losses).mean()
+        else:
+            loss = weighted_loss_for_mask(
                 pred,
                 y,
                 loss_mask,
-                mean_calibration_weight,
-                std_calibration_weight,
-            )
-        if excess_jitter_weight > 0.0:
-            loss = loss + excess_jitter_weight * masked_excess_jitter_loss(
-                pred,
-                loss_mask,
-                excess_jitter_threshold,
+                args.ccc_weight,
+                args.mse_weight,
+                args.delta_mse_weight,
+                args.mean_calibration_weight,
+                args.std_calibration_weight,
+                args.excess_jitter_weight,
+                args.excess_jitter_threshold,
             )
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
@@ -580,13 +658,7 @@ def main() -> None:
             train_loader,
             optimizer,
             device,
-            args.ccc_weight,
-            args.mse_weight,
-            args.delta_mse_weight,
-            args.mean_calibration_weight,
-            args.std_calibration_weight,
-            args.excess_jitter_weight,
-            args.excess_jitter_threshold,
+            args,
         )
         reconstructed = reconstruct(model, val_dataset, val_loader, device)
         val_metrics = write_group_metrics(run_dir, reconstructed)

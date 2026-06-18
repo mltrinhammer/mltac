@@ -216,6 +216,11 @@ def filter_heads(keys: list[Key], labels: np.ndarray, logits: np.ndarray | None,
     return filtered_keys, filtered_labels, logits[idx]
 
 
+def filter_domain_scores(keys: list[Key], labels: np.ndarray, logits: np.ndarray, domain: str):
+    idx = np.asarray([i for i, key in enumerate(keys) if key[0] == domain], dtype=np.int64)
+    return [keys[int(i)] for i in idx], labels[idx], logits[idx]
+
+
 def evaluate(
     keys: list[Key],
     labels: np.ndarray,
@@ -298,6 +303,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     train_keys, train_labels = read_train_labels(args.manifest, args.domain, args.train_split)
     val_keys, val_labels, val_logits = read_scores(args.run_dir / "val_prediction_scores.csv.gz", require_labels=True)
+    val_keys, val_labels, val_logits = filter_domain_scores(val_keys, val_labels, val_logits, args.domain)
     active_heads = tuple(args.active_heads)
     train_keys, train_labels, _ = filter_heads(train_keys, train_labels, None, active_heads)
     val_keys, val_labels, val_logits = filter_heads(val_keys, val_labels, val_logits, active_heads)
@@ -332,6 +338,7 @@ def main() -> None:
         strength = float(parts["strength"])
         matrices = transition_matrices(train_keys, train_labels, args.transition_alpha, mix)
         test_keys, _test_labels, test_logits = read_scores(args.run_dir / "test_prediction_scores.csv.gz", require_labels=False)
+        test_keys, _test_labels, test_logits = filter_domain_scores(test_keys, _test_labels, test_logits, args.domain)
         test_keys, _test_labels, test_logits = filter_heads(test_keys, _test_labels, test_logits, active_heads)
         test_pred = apply_hmm(test_keys, log_softmax_by_head(test_keys, test_logits), matrices, strength)
         write_predictions(args.output_dir / "test_predictions_hmm.csv", test_keys, test_pred)

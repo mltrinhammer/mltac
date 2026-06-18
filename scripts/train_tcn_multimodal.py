@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-splits", nargs="*", default=["test_internal", "test_additional"],
                         help="Splits to run test inference on after training.")
 
-    parser.add_argument("--backbone", choices=["simple", "dyadic_shared", "attention"], default="dyadic_shared")
+    parser.add_argument("--backbone", choices=["simple", "dyadic_shared", "dyadic_role_heads", "gated_partner", "shared_attention", "attention"], default="dyadic_shared")
     parser.add_argument("--fusion-mode", choices=["gated", "concat"], default="gated")
     parser.add_argument("--fusion-channels", type=int, default=64)
     parser.add_argument("--modality-dropout", type=float, default=0.1)
@@ -78,6 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mse-weight", type=float, default=0.0,
                         help="Weight for MSE loss component. Set to 0.0 for CCC-only loss.")
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--progress-every", type=int, default=0, help="Print train batch progress every N batches; 0 disables batch progress logging.")
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument(
@@ -173,10 +174,19 @@ def train_one_epoch(
     device: torch.device,
     ccc_weight: float,
     mse_weight: float = 0.0,
+    progress_every: int = 0,
 ) -> float:
     model.train()
     losses: list[float] = []
-    for batch in loader:
+    total_batches = len(loader)
+    for batch_idx, batch in enumerate(loader, start=1):
+        if progress_every > 0 and (batch_idx == 1 or batch_idx % progress_every == 0):
+            cache_size = len(getattr(loader.dataset, "_cache", {}))
+            print(
+                f"train_batch_start batch={batch_idx}/{total_batches} max_turn_len={int(batch['frame_mask'].shape[1])} "
+                f"dataset_cache_sessions={cache_size}",
+                flush=True,
+            )
         x_modalities = move_modalities_to_device(batch["x_modalities"], device)
         y = batch["y"].to(device)
         loss_mask = batch["loss_mask"].to(device)
@@ -187,6 +197,8 @@ def train_one_epoch(
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
         losses.append(float(loss.detach().cpu()))
+        if progress_every > 0 and (batch_idx == 1 or batch_idx % progress_every == 0):
+            print(f"train_batch_done batch={batch_idx}/{total_batches} loss={losses[-1]:.5f}", flush=True)
     return float(np.mean(losses)) if losses else float("nan")
 
 
@@ -334,14 +346,20 @@ def main() -> None:
     device = resolve_device(args.device)
     run_dir = make_run_dir(args)
 
+    print(f"startup run_dir={run_dir}", flush=True)
+    print(f"startup read_manifest train split={args.train_split}", flush=True)
     train_turns = read_multimodal_turn_manifest(args.manifest, PROJECT_ROOT, split=args.train_split)
+    print(f"startup read_manifest val split={args.val_split}", flush=True)
     val_turns = read_multimodal_turn_manifest(args.manifest, PROJECT_ROOT, split=args.val_split)
     if not train_turns or not val_turns:
         raise RuntimeError("Both train and validation multimodal turn rows are required.")
+    print(f"startup manifest_counts train_turns={len(train_turns)} val_turns={len(val_turns)}", flush=True)
 
     combo_name, modality_order, modality_dims = infer_layout(train_turns + val_turns)
+    print(f"startup layout combo={combo_name} modalities={list(modality_order)} dims={modality_dims}", flush=True)
     train_dataset = MultimodalTurnDataset(train_turns, min_frames=args.min_turn_frames)
     val_dataset = MultimodalTurnDataset(val_turns, min_frames=args.min_turn_frames)
+    print(f"startup dataset_counts train={len(train_dataset)} val={len(val_dataset)}", flush=True)
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
@@ -373,8 +391,10 @@ def main() -> None:
     with (run_dir / "config.json").open("w", encoding="utf-8") as handle:
         json.dump(config, handle, indent=2)
 
+    print(f"startup build_model device={device}", flush=True)
     model = build_model(args, modality_dims).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    print("startup enter_training_loop", flush=True)
 
     best_ccc = -float("inf")
     best_epoch = 0
@@ -382,7 +402,17 @@ def main() -> None:
     log_rows: list[dict[str, object]] = []
 
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, device, ccc_weight=args.ccc_weight, mse_weight=args.mse_weight)
+        print(f"epoch_start epoch={epoch:03d}", flush=True)
+        train_loss = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            device,
+            ccc_weight=args.ccc_weight,
+            mse_weight=args.mse_weight,
+            progress_every=args.progress_every,
+        )
+        print(f"validation_start epoch={epoch:03d}", flush=True)
         reconstructed, _gate_rows = reconstruct_validation(model, val_dataset, val_loader, device, collect_gate_weights=False)
         val_metrics = grouped_dyadic_metric_outputs(run_dir, reconstructed)
         val_ccc = val_metrics["ccc"]

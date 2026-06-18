@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--encoder-sharing", choices=("shared", "separate"), default="shared")
     parser.add_argument("--max-role-encoders", type=int, default=8)
+    parser.add_argument("--prediction-head-sharing", choices=("shared", "role_specific"), default="shared")
     parser.add_argument("--prediction-interaction-scale", type=float, default=0.1)
     parser.add_argument("--metadata", type=Path, help="Optional role-level metadata CSV keyed by dataset/session_id/role.")
     parser.add_argument("--metadata-mode", choices=("age_gender_language", "age_gender", "language_only"), default="age_gender_language")
@@ -261,6 +262,7 @@ def build_model(args: argparse.Namespace, modality_dims: dict[str, int]) -> torc
         dropout=args.dropout,
         encoder_sharing=args.encoder_sharing,
         max_role_encoders=args.max_role_encoders,
+        prediction_head_sharing=args.prediction_head_sharing,
         prediction_interaction_scale=args.prediction_interaction_scale,
         metadata_dim=getattr(args, "metadata_dim", 0),
         metadata_embedding_dim=args.metadata_embedding_dim,

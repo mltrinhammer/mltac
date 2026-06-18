@@ -108,6 +108,7 @@ class MeanPoolGroupMultimodalTCNRegressor(nn.Module):
         dropout: float = 0.2,
         encoder_sharing: str = "shared",
         max_role_encoders: int = 8,
+        prediction_head_sharing: str = "shared",
         prediction_interaction_scale: float = 0.1,
         metadata_dim: int = 0,
         metadata_embedding_dim: int = 16,
@@ -116,10 +117,13 @@ class MeanPoolGroupMultimodalTCNRegressor(nn.Module):
         super().__init__()
         if encoder_sharing not in {"shared", "separate"}:
             raise ValueError(f"Unsupported encoder_sharing: {encoder_sharing}")
+        if prediction_head_sharing not in {"shared", "role_specific"}:
+            raise ValueError(f"Unsupported prediction_head_sharing: {prediction_head_sharing}")
         if max_role_encoders < 1:
             raise ValueError("max_role_encoders must be positive.")
         self.encoder_sharing = encoder_sharing
         self.max_role_encoders = max_role_encoders
+        self.prediction_head_sharing = prediction_head_sharing
         self.prediction_interaction_scale = float(prediction_interaction_scale)
         self.metadata_dim = int(metadata_dim)
         self.metadata_embedding_dim = int(metadata_embedding_dim) if self.metadata_dim > 0 else 0
@@ -160,8 +164,25 @@ class MeanPoolGroupMultimodalTCNRegressor(nn.Module):
             )
         else:
             self.metadata_encoder = None
-        self.head = nn.Conv1d(hidden_channels + self.metadata_embedding_dim, 1, kernel_size=1)
-        self.prediction_interaction = nn.Linear(2, 1)
+        self.legacy_mean_partner = (
+            self.prediction_interaction_scale == 0.0
+            and self.metadata_dim == 0
+            and encoder_sharing == "shared"
+            and prediction_head_sharing == "shared"
+        )
+        if self.legacy_mean_partner:
+            self.head = nn.Conv1d(hidden_channels * 2, 1, kernel_size=1)
+            self.role_heads = None
+            self.prediction_interaction = None
+        else:
+            head_channels = hidden_channels + self.metadata_embedding_dim
+            if prediction_head_sharing == "shared":
+                self.head = nn.Conv1d(head_channels, 1, kernel_size=1)
+                self.role_heads = None
+            else:
+                self.head = None
+                self.role_heads = nn.ModuleList([nn.Conv1d(head_channels, 1, kernel_size=1) for _ in range(max_role_encoders)])
+            self.prediction_interaction = nn.Linear(2, 1)
 
     def forward(
         self,
@@ -196,8 +217,29 @@ class MeanPoolGroupMultimodalTCNRegressor(nn.Module):
             role_mask = torch.ones(bsz, n_roles, device=hidden.device, dtype=hidden.dtype)
         role_weights = role_mask.to(device=hidden.device, dtype=hidden.dtype)
 
-        base_pred = self.head(hidden.reshape(bsz * n_roles, hidden.shape[2], time_len))
-        base_pred = base_pred.reshape(bsz, n_roles, time_len).permute(0, 2, 1)
+        if self.legacy_mean_partner:
+            role_weights_4d = role_weights.view(bsz, n_roles, 1, 1)
+            group_sum = torch.sum(hidden * role_weights_4d, dim=1, keepdim=True)
+            partner_count_hidden = torch.clamp(torch.sum(role_weights_4d, dim=1, keepdim=True) - role_weights_4d, min=1.0)
+            partner_hidden = (group_sum - hidden * role_weights_4d) / partner_count_hidden
+            partner_hidden = partner_hidden * (role_weights_4d > 0).to(hidden.dtype)
+            head_input = torch.cat([hidden, partner_hidden], dim=2).reshape(bsz * n_roles, hidden.shape[2] * 2, time_len)
+            pred = self.head(head_input).reshape(bsz, n_roles, time_len).permute(0, 2, 1)
+            pred = pred * role_weights.unsqueeze(1)
+            if not return_gate_weights:
+                return pred
+            return pred, fusion_info
+
+        if self.prediction_head_sharing == "shared":
+            assert self.head is not None
+            base_pred = self.head(hidden.reshape(bsz * n_roles, hidden.shape[2], time_len))
+            base_pred = base_pred.reshape(bsz, n_roles, time_len).permute(0, 2, 1)
+        else:
+            assert self.role_heads is not None
+            if n_roles > len(self.role_heads):
+                raise RuntimeError(f"Need {n_roles} role heads, only configured {len(self.role_heads)}.")
+            role_preds = [self.role_heads[idx](hidden[:, idx]).squeeze(1) for idx in range(n_roles)]
+            base_pred = torch.stack(role_preds, dim=2)
         pred_weights = role_weights.unsqueeze(1)
         pred_sum = torch.sum(base_pred * pred_weights, dim=2, keepdim=True)
         partner_count = torch.clamp(torch.sum(pred_weights, dim=2, keepdim=True) - pred_weights, min=1.0)
