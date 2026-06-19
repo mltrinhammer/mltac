@@ -56,7 +56,7 @@ resolve_python_bin() {
 }
 
 ACM_DIR="${ACM_DIR:-$(pwd)/ACM}"
-SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS="${ACM_DIR}/../scripts"
 MANIFESTS="${ACM_DIR}/outputs/manifests"
 EXPERIMENTS="${ACM_DIR}/outputs/experiments"
 DRY_RUN="${DRY_RUN:-0}"
