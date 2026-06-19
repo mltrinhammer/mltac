@@ -2,11 +2,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ACM_DIR="${ACM_DIR:-$(pwd)/ACM}"
-PREPROCESS_SCRIPT="${ACM_DIR}/scripts/run_preprocessing.sh"
-TRAIN_SCRIPT="${ACM_DIR}/scripts/run_training.sh"
-MPIII_EVAL_SCRIPT="${ACM_DIR}/scripts/run_mpiii_test_multimodal_eval.sh"
-DAPA_MPIIGI_SCRIPT="${ACM_DIR}/scripts/run_dapa_mpiigi.sh"
+PREPROCESS_SCRIPT="${SCRIPT_DIR}/run_preprocessing.sh"
+TRAIN_SCRIPT="${SCRIPT_DIR}/run_training.sh"
+MPIII_EVAL_SCRIPT="${SCRIPT_DIR}/run_mpiii_test_multimodal_eval.sh"
+DAPA_MPIIGI_SCRIPT="${SCRIPT_DIR}/run_dapa_mpiigi.sh"
 LOG_DIR="${LOG_DIR:-/home/mlut/mltac/.garbage}"
 DRY_RUN="${DRY_RUN:-0}"
 

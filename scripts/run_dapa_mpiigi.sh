@@ -10,9 +10,9 @@
 #SBATCH --exclude=cn19
 
 # Usage (from mltac project root):
-#   sbatch ACM/scripts/run_dapa_mpiigi.sh
-#   bash ACM/scripts/run_dapa_mpiigi.sh           # interactive
-#   DRY_RUN=1 bash ACM/scripts/run_dapa_mpiigi.sh # preview commands
+#   sbatch scripts/run_dapa_mpiigi.sh
+#   bash scripts/run_dapa_mpiigi.sh           # interactive
+#   DRY_RUN=1 bash scripts/run_dapa_mpiigi.sh # preview commands
 #
 # Environment overrides:
 #   JOINT_TRAINING=1       Include NoXi data for joint training (default: 1)
@@ -51,7 +51,7 @@ resolve_python_bin() {
 # ---------------------------------------------------------------------------
 DATA_ROOT="${DATA_ROOT:-$(pwd)}"
 ACM_DIR="${ACM_DIR:-${DATA_ROOT}/ACM}"
-SCRIPTS="${ACM_DIR}/scripts"
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFESTS="${ACM_DIR}/outputs/manifests"
 EXPERIMENTS="${ACM_DIR}/outputs/experiments"
 PYTHON_BIN="$(resolve_python_bin)"
