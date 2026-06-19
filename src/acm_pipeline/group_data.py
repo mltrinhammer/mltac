@@ -14,6 +14,19 @@ from torch.utils.data import Dataset
 from src.acm_pipeline.data import ManifestExample, SessionTensor, load_session_tensor
 
 
+# Maps dataset names to integer domain IDs for domain prompting.
+DOMAIN_MAP: dict[str, int] = {
+    "noxi": 0,
+    "noxij": 0,
+    "mpiigroupinteraction": 1,
+}
+
+
+def domain_id_for_dataset(dataset_name: str) -> int:
+    """Return integer domain ID for a dataset name, defaulting to 0."""
+    return DOMAIN_MAP.get(dataset_name, 0)
+
+
 @dataclass(frozen=True)
 class GroupMultimodalWindowSample:
     dataset: str
@@ -143,6 +156,7 @@ class GroupMultimodalWindowDataset(Dataset):
             "session_key": sample.session_key,
             "start_frame": sample.start_frame,
             "combo_name": sample.combo_name,
+            "domain_id": domain_id_for_dataset(sample.dataset),
         }
 
 
@@ -166,6 +180,7 @@ def group_multimodal_window_collate_fn(batch: list[dict[str, object]]) -> dict[s
     role_orders: list[list[str]] = []
     start_frames = torch.zeros(batch_size, dtype=torch.long)
     window_lens = torch.zeros(batch_size, dtype=torch.long)
+    domain_ids = torch.zeros(batch_size, dtype=torch.long)
 
     for idx, item in enumerate(batch):
         window_len = int(item["window_len"])
@@ -180,6 +195,7 @@ def group_multimodal_window_collate_fn(batch: list[dict[str, object]]) -> dict[s
         role_orders.append(list(item["role_order"]))
         start_frames[idx] = int(item["start_frame"])
         window_lens[idx] = window_len
+        domain_ids[idx] = int(item.get("domain_id", 0))
 
     loss_mask = target_mask * frame_mask.unsqueeze(-1) * role_mask.unsqueeze(1)
     return {
@@ -194,4 +210,5 @@ def group_multimodal_window_collate_fn(batch: list[dict[str, object]]) -> dict[s
         "session_keys": session_keys,
         "start_frames": start_frames,
         "window_lens": window_lens,
+        "domain_ids": domain_ids,
     }

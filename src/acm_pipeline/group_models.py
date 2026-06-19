@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import nn
 
@@ -249,6 +251,296 @@ class MeanPoolGroupMultimodalTCNRegressor(nn.Module):
         residual = self.prediction_interaction(interaction_input).squeeze(-1)
         pred = base_pred + self.prediction_interaction_scale * residual
         pred = pred * pred_weights
+        if not return_gate_weights:
+            return pred
+        return pred, fusion_info
+
+
+class DomainPromptModule(nn.Module):
+    """Learnable domain-specific vectors prepended to temporal features.
+
+    Each domain (dataset) gets ``n_prompt_tokens`` learnable vectors that are
+    prepended along the time axis, conditioning downstream layers on the data's
+    cultural/linguistic origin.
+    """
+
+    def __init__(
+        self,
+        n_domains: int,
+        prompt_dim: int,
+        n_prompt_tokens: int = 4,
+    ) -> None:
+        super().__init__()
+        self.n_domains = n_domains
+        self.n_prompt_tokens = n_prompt_tokens
+        self.prompts = nn.Parameter(
+            torch.randn(n_domains, n_prompt_tokens, prompt_dim) * 0.02
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        domain_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Prepend domain prompt tokens to the time axis.
+
+        Args:
+            x: ``[B, N_roles, C, T]`` fused feature tensor.
+            domain_ids: ``[B]`` integer domain index per sample.
+
+        Returns:
+            ``[B, N_roles, C, T + n_prompt_tokens]`` with prompts prepended.
+        """
+        bsz, n_roles, channels, time_len = x.shape
+        prompt = self.prompts[domain_ids]  # [B, n_prompt_tokens, C]
+        prompt = prompt.unsqueeze(1).expand(bsz, n_roles, -1, -1)  # [B, N, P, C]
+        x_bt = x.permute(0, 1, 3, 2)  # [B, N, T, C]
+        x_prompted = torch.cat([prompt, x_bt], dim=2)  # [B, N, P+T, C]
+        return x_prompted.permute(0, 1, 3, 2)  # [B, N, C, P+T]
+
+
+class ParallelCrossAttention(nn.Module):
+    """Parallel reactive/anticipatory cross-attention for multi-participant groups.
+
+    Each participant queries the mean of all other participants' states
+    (computed via ``role_mask``), separately for reactive (forward BiLSTM)
+    and anticipatory (backward BiLSTM) representations.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int = 4,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.reactive_cross_attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True,
+        )
+        self.reactive_norm = nn.LayerNorm(d_model)
+        self.anticipatory_cross_attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True,
+        )
+        self.anticipatory_norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        reactive: torch.Tensor,
+        anticipatory: torch.Tensor,
+        role_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Run parallel cross-attention on reactive and anticipatory states.
+
+        Args:
+            reactive: ``[B, N_roles, T, D]`` forward BiLSTM hidden states.
+            anticipatory: ``[B, N_roles, T, D]`` backward BiLSTM hidden states.
+            role_mask: ``[B, N_roles]`` float mask (1 for present, 0 for padded).
+
+        Returns:
+            Tuple of ``(reactive_out, anticipatory_out)`` each ``[B, N, T, D]``.
+        """
+        bsz, n_roles, time_len, d_model = reactive.shape
+        role_weights = role_mask.unsqueeze(-1).unsqueeze(-1)  # [B, N, 1, 1]
+
+        # Mean-of-others for each participant: (sum_all - self) / (count - 1)
+        reactive_sum = (reactive * role_weights).sum(dim=1, keepdim=True)
+        antic_sum = (anticipatory * role_weights).sum(dim=1, keepdim=True)
+        partner_count = role_mask.sum(dim=1, keepdim=True).unsqueeze(-1).unsqueeze(-1) - role_weights
+        partner_count = partner_count.clamp(min=1.0)
+        reactive_partner = (reactive_sum - reactive * role_weights) / partner_count
+        antic_partner = (antic_sum - anticipatory * role_weights) / partner_count
+
+        # Merge B*N into batch dim for MultiheadAttention
+        r_query = reactive.reshape(bsz * n_roles, time_len, d_model)
+        r_kv = reactive_partner.reshape(bsz * n_roles, time_len, d_model)
+        a_query = anticipatory.reshape(bsz * n_roles, time_len, d_model)
+        a_kv = antic_partner.reshape(bsz * n_roles, time_len, d_model)
+
+        r_out, _ = self.reactive_cross_attn(r_query, r_kv, r_kv, need_weights=False)
+        r_out = self.reactive_norm(r_query + r_out)
+
+        a_out, _ = self.anticipatory_cross_attn(a_query, a_kv, a_kv, need_weights=False)
+        a_out = self.anticipatory_norm(a_query + a_out)
+
+        return (
+            r_out.reshape(bsz, n_roles, time_len, d_model),
+            a_out.reshape(bsz, n_roles, time_len, d_model),
+        )
+
+
+class DAPAGroupMultimodalRegressor(nn.Module):
+    """Hybrid TCN + BiLSTM + Parallel Cross-Attention group engagement model.
+
+    Inspired by DAPA (Yu et al., MM 2025).  Retains the existing TCN encoder
+    for local temporal features, then adds a BiLSTM for full-sequence context
+    and parallel cross-attention for inter-participant synchrony modeling.
+    """
+
+    def __init__(
+        self,
+        modality_dims: dict[str, int],
+        fusion_channels: int = 64,
+        fusion_mode: str = "gated",
+        modality_dropout: float = 0.1,
+        tcn_hidden_channels: int = 64,
+        tcn_levels: int = 4,
+        tcn_kernel_size: int = 5,
+        tcn_dropout: float = 0.2,
+        lstm_hidden: int = 128,
+        lstm_layers: int = 2,
+        lstm_dropout: float = 0.1,
+        cross_attn_heads: int = 4,
+        cross_attn_dropout: float = 0.1,
+        n_domains: int = 2,
+        n_prompt_tokens: int = 4,
+        use_domain_prompts: bool = True,
+        encoder_sharing: str = "shared",
+        max_role_encoders: int = 8,
+        prediction_dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        if encoder_sharing not in {"shared", "separate"}:
+            raise ValueError(f"Unsupported encoder_sharing: {encoder_sharing}")
+
+        self.use_domain_prompts = use_domain_prompts
+        self.n_prompt_tokens = n_prompt_tokens if use_domain_prompts else 0
+        self.encoder_sharing = encoder_sharing
+        self.max_role_encoders = max_role_encoders
+        self.lstm_hidden = lstm_hidden
+
+        # Stage 1: Multimodal Fusion (reused from existing codebase)
+        self.fusion = GroupRoleWiseMultimodalFusion(
+            modality_dims=modality_dims,
+            d_shared=fusion_channels,
+            fusion_mode=fusion_mode,
+            modality_dropout=modality_dropout,
+        )
+        fused_dim = self.fusion.fused_features_per_role
+
+        # Stage 1.5: Domain Prompting
+        if use_domain_prompts:
+            self.domain_prompt = DomainPromptModule(
+                n_domains=n_domains,
+                prompt_dim=fused_dim,
+                n_prompt_tokens=n_prompt_tokens,
+            )
+        else:
+            self.domain_prompt = None
+
+        # Stage 2: TCN Encoder
+        def make_tcn_encoder() -> nn.Sequential:
+            channels = [fused_dim] + [tcn_hidden_channels] * tcn_levels
+            return nn.Sequential(*[
+                TemporalBlock(
+                    in_channels=channels[idx],
+                    out_channels=channels[idx + 1],
+                    kernel_size=tcn_kernel_size,
+                    dilation=2 ** idx,
+                    dropout=tcn_dropout,
+                )
+                for idx in range(tcn_levels)
+            ])
+
+        if encoder_sharing == "shared":
+            self.tcn_encoder = make_tcn_encoder()
+            self.role_tcn_encoders = None
+        else:
+            self.tcn_encoder = None
+            self.role_tcn_encoders = nn.ModuleList(
+                [make_tcn_encoder() for _ in range(max_role_encoders)]
+            )
+
+        # Stage 3: BiLSTM
+        self.bilstm = nn.LSTM(
+            input_size=tcn_hidden_channels,
+            hidden_size=lstm_hidden,
+            num_layers=lstm_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=lstm_dropout if lstm_layers > 1 else 0.0,
+        )
+
+        # Stage 4: Parallel Cross-Attention
+        self.cross_attention = ParallelCrossAttention(
+            d_model=lstm_hidden,
+            n_heads=cross_attn_heads,
+            dropout=cross_attn_dropout,
+        )
+
+        # Stage 5: Prediction Head
+        head_input_dim = lstm_hidden * 2  # reactive + anticipatory concatenated
+        self.prediction_head = nn.Sequential(
+            nn.Linear(head_input_dim, head_input_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(prediction_dropout),
+            nn.Linear(head_input_dim // 2, 1),
+        )
+
+    def forward(
+        self,
+        x_modalities: dict[str, torch.Tensor],
+        role_mask: torch.Tensor | None = None,
+        domain_ids: torch.Tensor | None = None,
+        return_gate_weights: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, object]]:
+        # Stage 1: Multimodal fusion
+        fused, fusion_info = self.fusion(x_modalities)
+        bsz, n_roles, channels, time_len = fused.shape
+
+        # Stage 1.5: Domain prompting
+        if self.use_domain_prompts and self.domain_prompt is not None:
+            if domain_ids is None:
+                domain_ids = torch.zeros(bsz, dtype=torch.long, device=fused.device)
+            fused = self.domain_prompt(fused, domain_ids)
+            prompted_time = fused.shape[-1]
+        else:
+            prompted_time = time_len
+
+        # Stage 2: TCN encoder
+        if self.encoder_sharing == "shared":
+            assert self.tcn_encoder is not None
+            tcn_out = self.tcn_encoder(
+                fused.reshape(bsz * n_roles, channels, prompted_time)
+            )
+        else:
+            assert self.role_tcn_encoders is not None
+            if n_roles > len(self.role_tcn_encoders):
+                raise RuntimeError(
+                    f"Need {n_roles} role TCN encoders, only {len(self.role_tcn_encoders)} configured."
+                )
+            tcn_parts = [self.role_tcn_encoders[i](fused[:, i]) for i in range(n_roles)]
+            tcn_out = torch.stack(tcn_parts, dim=1).reshape(
+                bsz * n_roles, tcn_parts[0].shape[1], prompted_time
+            )
+
+        # Strip prompt tokens so downstream sees original time length
+        if self.n_prompt_tokens > 0:
+            tcn_out = tcn_out[:, :, self.n_prompt_tokens:]
+
+        # Stage 3: BiLSTM  [B*N, T, tcn_hidden] -> [B*N, T, 2*lstm_hidden]
+        lstm_out, _ = self.bilstm(tcn_out.transpose(1, 2))
+
+        reactive = lstm_out[:, :, :self.lstm_hidden]     # forward states
+        anticipatory = lstm_out[:, :, self.lstm_hidden:]  # backward states
+
+        reactive = reactive.reshape(bsz, n_roles, time_len, self.lstm_hidden)
+        anticipatory = anticipatory.reshape(bsz, n_roles, time_len, self.lstm_hidden)
+
+        # Stage 4: Parallel cross-attention
+        if role_mask is None:
+            role_mask = torch.ones(bsz, n_roles, device=reactive.device, dtype=reactive.dtype)
+        role_mask_float = role_mask.to(device=reactive.device, dtype=reactive.dtype)
+
+        reactive_out, antic_out = self.cross_attention(
+            reactive, anticipatory, role_mask_float,
+        )
+
+        # Stage 5: Prediction
+        combined = torch.cat([reactive_out, antic_out], dim=-1)  # [B, N, T, 2D]
+        pred = self.prediction_head(combined).squeeze(-1)         # [B, N, T]
+        pred = pred.permute(0, 2, 1)  # [B, T, N] to match existing output format
+        pred = pred * role_mask_float.unsqueeze(1)
+
         if not return_gate_weights:
             return pred
         return pred, fusion_info

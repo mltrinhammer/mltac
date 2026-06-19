@@ -6,10 +6,11 @@ ACM_DIR="${ACM_DIR:-$(pwd)/ACM}"
 PREPROCESS_SCRIPT="${ACM_DIR}/scripts/run_preprocessing.sh"
 TRAIN_SCRIPT="${ACM_DIR}/scripts/run_training.sh"
 MPIII_EVAL_SCRIPT="${ACM_DIR}/scripts/run_mpiii_test_multimodal_eval.sh"
+DAPA_MPIIGI_SCRIPT="${ACM_DIR}/scripts/run_dapa_mpiigi.sh"
 LOG_DIR="${LOG_DIR:-/home/mlut/mltac/.garbage}"
 DRY_RUN="${DRY_RUN:-0}"
 
-ALL_STEPS=(1 2 3 4 5 6)
+ALL_STEPS=(1 2 3 4 5 6 7)
 declare -A STEP_LABELS=(
     [1]="turns_simple_tcn"
     [2]="turns_dyadic_shared"
@@ -17,6 +18,7 @@ declare -A STEP_LABELS=(
     [4]="turns_multimodal_winner"
     [5]="windows_winner"
     [6]="mpiii_test_eval"
+    [7]="dapa_mpiigi"
 )
 declare -A VALID_STEPS=()
 for step in "${ALL_STEPS[@]}"; do
@@ -268,6 +270,62 @@ if [ -n "${SELECTED_STEP_MAP[6]+x}" ]; then
             exit 1
         fi
         STEP_JOB_IDS[6]="${step_job_id}"
+        echo "         job_id=${step_job_id}"
+    fi
+fi
+
+# =====================================================================
+# Step 7: DAPA MPIIGI training (depends on preprocessing for normalizers)
+# =====================================================================
+if [ -n "${SELECTED_STEP_MAP[7]+x}" ]; then
+    label="${STEP_LABELS[7]}"
+    job_name="gcm_s7_${label}"
+    output_path="${LOG_DIR}/${job_name}.%j.out"
+    error_path="${LOG_DIR}/${job_name}.%j.err"
+
+    if [ ! -f "${DAPA_MPIIGI_SCRIPT}" ]; then
+        echo "DAPA MPIIGI script not found: ${DAPA_MPIIGI_SCRIPT}" >&2
+        exit 1
+    fi
+
+    # Depends on preprocessing (normalizers fitted on NoXi train data).
+    dependency_job_ids=()
+    if [ "${DRY_RUN}" = "1" ]; then
+        dependency_job_ids+=("<preprocess_job_id>")
+    else
+        dependency_job_ids+=("${preprocess_job_id}")
+    fi
+
+    dependency_string="afterok:${dependency_job_ids[0]}"
+    for dep_id in "${dependency_job_ids[@]:1}"; do
+        dependency_string+=":${dep_id}"
+    done
+
+    cmd=(
+        sbatch
+        --parsable
+        --dependency "${dependency_string}"
+        --export ALL
+        --job-name "${job_name}"
+        --output "${output_path}"
+        --error "${error_path}"
+        "${DAPA_MPIIGI_SCRIPT}"
+    )
+
+    if [ "${DRY_RUN}" = "1" ]; then
+        echo "[dry] step 7 (${label})"
+        printf '      '
+        printf '%q ' "${cmd[@]}"
+        echo ""
+    else
+        echo "[submit] step 7 (${label})"
+        submit_output="$("${cmd[@]}")"
+        step_job_id="${submit_output%%;*}"
+        if [ -z "${step_job_id}" ]; then
+            echo "Failed to parse job ID from sbatch output: ${submit_output}" >&2
+            exit 1
+        fi
+        STEP_JOB_IDS[7]="${step_job_id}"
         echo "         job_id=${step_job_id}"
     fi
 fi
