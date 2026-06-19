@@ -59,7 +59,7 @@ resolve_python_bin() {
 
 DATA_ROOT="${DATA_ROOT:-$(pwd)}"
 ACM_DIR="${ACM_DIR:-${DATA_ROOT}/ACM}"
-SCRIPTS="${ACM_DIR}/scripts"
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFESTS="${ACM_DIR}/outputs/manifests"
 EXPERIMENTS="${ACM_DIR}/outputs/experiments"
 

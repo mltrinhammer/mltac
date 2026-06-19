@@ -42,7 +42,7 @@ resolve_python_bin() {
 
 DATA_ROOT="${DATA_ROOT:-$(pwd)}"
 ACM_DIR="${ACM_DIR:-${DATA_ROOT}/ACM}"
-SCRIPTS="${ACM_DIR}/scripts"
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${EVAL_ROOT:-${ACM_DIR}/outputs/mpiii_eval}"
 MANIFESTS="${EVAL_ROOT}/manifests"
 PYTHON_BIN="$(resolve_python_bin)"
