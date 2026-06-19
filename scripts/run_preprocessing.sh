@@ -168,9 +168,13 @@ echo ""
 
 # ---- Step 0: Build manifests from organizer data (if not already done) ----
 MANIFEST="${ACM_DIR}/outputs/model_raw_manifest_train_with_split.csv"
+STREAMS="${ACM_DIR}/outputs/model_raw_manifest_streams_train.csv"
 if [ ! -f "${MANIFEST}" ]; then
     echo "--- Step 0: Building manifests from organizer data ---"
-    "${PYTHON_BIN}" "${SCRIPTS}/build_manifests_from_organizer.py" --data-root "${DATA_ROOT}"
+    "${PYTHON_BIN}" "${SCRIPTS}/build_manifests_from_organizer.py" \
+        --data-root "${DATA_ROOT}" \
+        --out-dir "${ACM_DIR}/outputs" \
+        --cache-root "${ACM_DIR}/cache"
     echo ""
 fi
 
@@ -200,7 +204,14 @@ for fs in "${STREAM_FEATURE_SETS[@]}"; do
         continue
     fi
     echo "  [run]  ${fs}"
-    "${PYTHON_BIN}" "${SCRIPTS}/noxi_prepare_feature_tensors_25hz.py" --feature-set "${fs}"
+    "${PYTHON_BIN}" "${SCRIPTS}/noxi_prepare_feature_tensors_25hz.py" \
+        --feature-set "${fs}" \
+        --manifest "${MANIFEST}" \
+        --streams "${STREAMS}" \
+        --out-root "${ACM_DIR}/processed/${fs}_25hz" \
+        --processed-manifest "${PROCESSED_MANIFEST}" \
+        --status-out "${MANIFESTS}/feature_status_${fs}_25hz.csv" \
+        --cache-root "${ACM_DIR}/cache"
     echo ""
 done
 
@@ -247,7 +258,10 @@ for fs in "${FEATURE_SETS[@]}"; do
     echo "  [run]  ${fs}"
     "${PYTHON_BIN}" "${SCRIPTS}/noxi_fit_apply_feature_transform.py" \
         --input-manifest "${INPUT_MANIFEST}" \
-        --method raw
+        --method raw \
+        --out-root "${ACM_DIR}/processed/transformed/${fs}_raw" \
+        --output-manifest "${OUTPUT_MANIFEST}" \
+        --transform-dir "${ACM_DIR}/outputs/transforms/${fs}_raw"
     echo ""
 done
 
