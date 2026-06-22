@@ -186,6 +186,7 @@ STREAM_FEATURE_SETS=(
     text_xlm_roberta
     visual_swin
     visual_openface
+    visual_openface2
     visual_openpose
     visual_clip
     visual_dino
