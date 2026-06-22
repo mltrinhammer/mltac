@@ -221,7 +221,7 @@ def main() -> None:
                     # "no supervision" to downstream preprocessing.
                     target_file = session_dir / f"{role}.{TARGET_SUFFIX}"
                     target_rel = (
-                        f"{split_dirname}/{session_id}/{role}.{TARGET_SUFFIX}"
+                        f"{dataset_name}/{split_dirname}/{session_id}/{role}.{TARGET_SUFFIX}"
                         if target_file.exists()
                         else ""
                     )
@@ -242,8 +242,8 @@ def main() -> None:
                         binary = session_dir / f"{role}.{stream_name}.stream~"
                         if not binary.exists():
                             continue
-                        header_rel = f"{split_dirname}/{session_id}/{role}.{stream_name}.stream"
-                        binary_rel = f"{split_dirname}/{session_id}/{role}.{stream_name}.stream~"
+                        header_rel = f"{dataset_name}/{split_dirname}/{session_id}/{role}.{stream_name}.stream"
+                        binary_rel = f"{dataset_name}/{split_dirname}/{session_id}/{role}.{stream_name}.stream~"
                         stream_rows.append(
                             {
                                 "dataset": dataset_name,
