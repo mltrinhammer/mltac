@@ -43,6 +43,11 @@ FEATURE_SETS: dict[str, FeatureSet] = {
         streams=("openface2", "openface3"),
         description="Full OpenFace streams available in the corpus.",
     ),
+    "visual_openface2": FeatureSet(
+        name="visual_openface2",
+        streams=("openface2",),
+        description="OpenFace2 stream only (for datasets without openface3).",
+    ),
     "visual_openpose": FeatureSet(
         name="visual_openpose",
         streams=("openpose",),

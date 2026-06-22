@@ -60,9 +60,10 @@ DRY_RUN="${DRY_RUN:-0}"
 # ---------------------------------------------------------------------------
 # DAPA-specific feature set: eGeMAPS + Swin + OpenFace + OpenPose
 # (matches last year's DAPA winner minus Whisper)
+# Note: MPIIGI only has openface2 (not openface3), so we use visual_openface2
 # ---------------------------------------------------------------------------
-DAPA_FEATURE_SETS=(audio_egemaps visual_swin visual_openface visual_openpose)
-DAPA_COMBO_NAME="audio_egemaps__visual_openface__visual_openpose__visual_swin"
+DAPA_FEATURE_SETS=(audio_egemaps visual_swin visual_openface2 visual_openpose)
+DAPA_COMBO_NAME="audio_egemaps__visual_openface2__visual_openpose__visual_swin"
 
 # ---------------------------------------------------------------------------
 # MPIIGI-specific settings
@@ -94,7 +95,7 @@ DAPA_DROPOUT="${DAPA_DROPOUT:-0.2}"
 DAPA_LSTM_DROPOUT="${DAPA_LSTM_DROPOUT:-0.1}"
 NO_DOMAIN_PROMPTS="${NO_DOMAIN_PROMPTS:-0}"
 
-RUN_NAME="${RUN_NAME:-dapa_${DAPA_COMBO_NAME}_mpiigi}"
+RUN_NAME="${RUN_NAME:-dapa_mpiigi_${DAPA_COMBO_NAME}}"
 
 # ---------------------------------------------------------------------------
 # Normalizer paths (fitted on NoXi train; reused for all datasets)
