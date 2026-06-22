@@ -177,6 +177,7 @@ for fs in "${DAPA_FEATURE_SETS[@]}"; do
             --out-root "${ACM_DIR}/processed/mpiii_eval/${fs}_25hz" \
             --processed-manifest "${manifest_25hz}" \
             --status-out "${MPII_MANIFESTS}/feature_status_${fs}_25hz.csv" \
+            --cache-root "${ACM_DIR}/cache" \
             --valid-roles ${VALID_ROLES}
     fi
 
