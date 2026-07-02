@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+MoE/experiments/
+*.pt
+*.pth
+*.log
+
+!artifacts/**/*.pt
+!artifacts/**/*.json
+!artifacts/**/*.csv
+!artifacts/**/*.md
+!artifacts/**/*.txt

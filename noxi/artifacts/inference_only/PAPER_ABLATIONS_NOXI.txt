@@ -1,0 +1,512 @@
+PAPER_ABLATIONS_NOXI
+====================
+
+Purpose
+-------
+This note documents the clean NOXI / NOXI-J feature-ablation runs created on
+2026-06-29 for the paper. The goal was to rerun the final submitted-style
+architecture while varying only the input feature set, so the ablation table can
+be interpreted as a feature-family comparison rather than a mixture of older
+architectures.
+
+These runs are validation ablations, not the literal submitted checkpoint
+directories. Architecturally, however, they match the clean final NOXI/NOXI-J
+model family: causal dyadic shared-head TCN, gated multimodal fusion,
+domain_role metadata, output calibration, W750 windows, and VideoMAE visual
+features.
+
+
+Main Runner
+-----------
+Script:
+
+  /work/ACM/ACM-clean/run_logs/run_final_feature_family_videomae_2026_06_29.sh
+
+This script builds reduced multimodal manifests and trains all final feature
+family runs. It was launched with:
+
+  cd /work/ACM/ACM-clean
+  MAX_PARALLEL=2 GPU=0 bash /work/ACM/ACM-clean/run_logs/run_final_feature_family_videomae_2026_06_29.sh
+
+The script completed successfully at:
+
+  2026-06-29 20:15:34
+
+All 14 runs produced:
+
+  model_best.pt
+  metrics_overall.csv
+  metrics_by_dataset.csv
+  metrics_by_role.csv
+  metrics_by_session.csv
+  val_predictions.csv
+  val_gate_weights.csv
+
+
+Output Directory
+----------------
+All ablation outputs are under:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/experiments_final_feature_family_videomae_2026_06_29
+
+Each run directory follows this naming pattern:
+
+  {profile}_finalfeat_{feature_set}_domain_role_cal_causal_w750_{stride}_seed13
+
+Profiles:
+
+  noxi_s375   = NOXI-facing final profile, W750/S375
+  noxij_s563  = NOXI-J-facing final profile, W750/S563
+
+Feature-set labels:
+
+  audio_only
+  text_only
+  videomae_only
+  audio_text
+  audio_videomae
+  text_videomae
+  audio_text_videomae
+
+
+Source Manifests
+----------------
+The ablation manifests were derived from the final full-feature W750 manifests:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/window_stride_2026_06_22/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxi_noxij_w750_s375_multimodal.csv
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/window_stride_2026_06_22/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxi_noxij_w750_s563_multimodal.csv
+
+The reduced ablation manifests were written to:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/final_feature_family_videomae_2026_06_29
+
+Reduced manifests were produced with:
+
+  /work/ACM/ACM-clean/scripts/build_noxi_multimodal_ablation_manifest.py
+
+That script keeps the same rows/windows but changes modality_order_json and
+modalities_json so that the model sees only the selected feature subset.
+
+
+Feature Sets
+------------
+The clean ablation used only the final VideoMAE feature family:
+
+  audio_w2vbert2
+  text_xlm_roberta
+  visual_videomae
+
+The seven combinations were:
+
+  audio_w2vbert2
+  text_xlm_roberta
+  visual_videomae
+  audio_w2vbert2 + text_xlm_roberta
+  audio_w2vbert2 + visual_videomae
+  text_xlm_roberta + visual_videomae
+  audio_w2vbert2 + text_xlm_roberta + visual_videomae
+
+Older DINO/CLIP/SWIN/OpenFace/OpenPose feature ablations exist elsewhere, but
+they are not the clean final-family table described here.
+
+
+Training Script
+---------------
+All runs used:
+
+  /work/ACM/ACM-clean/scripts/train_tcn_multimodal.py
+
+Key shared settings:
+
+  --backbone dyadic_shared
+  --fusion-mode gated
+  --fusion-channels 96
+  --modality-dropout 0.10
+  --metadata /work/ACM/ACM-clean/MoE/noxi_data/outputs/metadata/role_metadata.csv
+             /work/ACM/ACM-clean/MoE/noxi_j_data/outputs/metadata/role_metadata.csv
+  --metadata-set domain_role
+  --metadata-injection output_calibration
+  --metadata-embedding-dim 16
+  --metadata-dropout 0.10
+  --hidden-channels 96
+  --levels 5
+  --kernel-size 5
+  --dropout 0.20
+  --causal-tcn
+  --batch-size 8
+  --epochs 30
+  --patience 6
+  --min-epochs 5
+  --min-delta 0.001
+  --lr 3e-4
+  --weight-decay 3e-5
+  --ccc-weight 1.0
+  --mse-weight 0.0
+  --seed 13
+  --device cuda
+
+The NOXI-facing profile uses the W750/S375 manifest. The NOXI-J-facing profile
+uses the W750/S563 manifest.
+
+
+Temporal Resolution
+-------------------
+NOXI and NOXI-J features are aligned to a 25 Hz frame grid.
+
+Relevant code:
+
+  /work/ACM/ACM-clean/scripts/noxi_prepare_feature_tensors_25hz.py
+  /work/ACM/ACM-clean/src/acm_pipeline/alignment.py
+
+The alignment constant is TARGET_RATE_HZ = 25.0.
+
+Therefore:
+
+  W750 = 750 frames = 30.00 seconds
+  S375 = 375 frames = 15.00 seconds
+  S563 = 563 frames = 22.52 seconds
+
+
+Final CCC Table
+---------------
+The main feature-ablation table was extracted from:
+
+  metrics_overall.csv
+  metrics_by_dataset.csv
+
+Compact CCC results:
+
+  Feature set                 Profile   Overall   NOXI     NOXI-J
+  ----------------------------------------------------------------
+  Audio only                  S375      0.8835    0.8037   0.5762
+  Audio only                  S563      0.8758    0.7623   0.5510
+  Text only                   S375      0.8249    0.6503   0.3478
+  Text only                   S563      0.8257    0.6613   0.4490
+  VideoMAE only               S375      0.8623    0.7840   0.5589
+  VideoMAE only               S563      0.8478    0.7767   0.4459
+  Audio + text                S375      0.8922    0.7976   0.6052
+  Audio + text                S563      0.8875    0.7930   0.5528
+  Audio + VideoMAE            S375      0.9065    0.8188   0.6553
+  Audio + VideoMAE            S563      0.8951    0.8119   0.6759
+  Text + VideoMAE             S375      0.8920    0.8007   0.6111
+  Text + VideoMAE             S563      0.8807    0.7787   0.6440
+  Audio + text + VideoMAE     S375      0.9152    0.8448   0.7198
+  Audio + text + VideoMAE     S563      0.9105    0.8463   0.7058
+
+Interpretation:
+
+The full multimodal setting is the strongest and most stable configuration.
+Audio is the strongest individual modality, VideoMAE is also informative on its
+own, and text alone is weakest, particularly on NOXI-J. However, text still
+improves the full system when combined with audio and VideoMAE. The strongest
+pairwise setting is audio + VideoMAE, which suggests complementary acoustic and
+visual temporal information. The best results come from combining all three
+modalities in the final dyadic TCN architecture.
+
+
+Gate-Weight Table
+-----------------
+The training script writes validation-average gate weights to:
+
+  val_gate_weights.csv
+
+These are softmax weights over projected modalities, averaged over valid
+validation frames and reported separately for novice and expert. They are not
+fixed global coefficients; they summarize dynamic per-frame fusion gates.
+
+Full-model gate weights:
+
+  Profile   Novice gates                              Expert gates
+  -------------------------------------------------------------------------------
+  S375      Audio 0.300, Text 0.375, VideoMAE 0.325   Audio 0.298, Text 0.397, VideoMAE 0.306
+  S563      Audio 0.323, Text 0.378, VideoMAE 0.299   Audio 0.313, Text 0.364, VideoMAE 0.323
+
+All feature-set gate weights:
+
+  Feature set                 Profile  Novice gates                              Expert gates
+  ------------------------------------------------------------------------------------------------------------
+  Audio only                  S375     Audio 1.000                               Audio 1.000
+  Audio only                  S563     Audio 1.000                               Audio 1.000
+  Text only                   S375     Text 1.000                                Text 1.000
+  Text only                   S563     Text 1.000                                Text 1.000
+  VideoMAE only               S375     VideoMAE 1.000                            VideoMAE 1.000
+  VideoMAE only               S563     VideoMAE 1.000                            VideoMAE 1.000
+  Audio + text                S375     Audio 0.542, Text 0.458                  Audio 0.492, Text 0.508
+  Audio + text                S563     Audio 0.517, Text 0.483                  Audio 0.489, Text 0.511
+  Audio + VideoMAE            S375     Audio 0.509, VideoMAE 0.491              Audio 0.516, VideoMAE 0.484
+  Audio + VideoMAE            S563     Audio 0.516, VideoMAE 0.484              Audio 0.500, VideoMAE 0.500
+  Text + VideoMAE             S375     Text 0.475, VideoMAE 0.525               Text 0.524, VideoMAE 0.476
+  Text + VideoMAE             S563     Text 0.481, VideoMAE 0.519               Text 0.535, VideoMAE 0.465
+  Audio + text + VideoMAE     S375     Audio 0.300, Text 0.375, VideoMAE 0.325   Audio 0.298, Text 0.397, VideoMAE 0.306
+  Audio + text + VideoMAE     S563     Audio 0.323, Text 0.378, VideoMAE 0.299   Audio 0.313, Text 0.364, VideoMAE 0.323
+
+Interpretation:
+
+The full model does not collapse to one modality. Average gates are balanced,
+with a mild preference for text in the three-modality setting. Pairwise gates
+are also generally close to even. This supports describing the fusion as
+adaptive multimodal integration rather than single-modality dominance.
+
+
+Architecture Notes
+------------------
+The clean final NOXI/NOXI-J runs use dyadic input and a shared dyadic prediction
+head.
+
+In this setup, novice and expert features are fused per modality and then paired
+as dyadic input. The TCN hidden states are therefore conditioned on both
+participants. The shared prediction head outputs two channels, corresponding to
+novice and expert predictions.
+
+The metadata setting is domain_role with output calibration. Metadata is not
+injected into the temporal encoder. Instead, it calibrates the output via a
+small metadata-conditioned scale/bias readout.
+
+
+Relation to Submitted Models
+----------------------------
+Use this wording carefully:
+
+  These are clean validation ablation reruns using the same final model family
+  and architecture as the submitted-style NOXI/NOXI-J models, but they are not
+  necessarily the exact checkpoint files used to generate submitted prediction
+  CSVs.
+
+The submitted/best model directories should be documented separately when the
+stand-alone repository is prepared. Relevant submission references discussed
+elsewhere include:
+
+  /work/ACM/submission_2306_causal/noxi-base
+  /work/ACM/submission 2/noxi-j
+  /work/ACM/best noxi-j/noxi-j
+  /work/ACM/submission_2306_crsocial_oversample5_allbest_base/noxi-j
+
+This file documents the clean paper ablation runs from 2026-06-29, not the
+complete submission export procedure.
+
+
+Submitted-Profile Partner / Self Ablations
+==========================================
+
+Purpose
+-------
+This section documents the clean W750 partner-modelling ablations created on
+2026-06-30 for the paper. These runs were added after noticing that the older
+large partner-ladder table was clean but used the W500/S125 regime. The goal
+here was to rerun the partner/self comparison on the submitted-style W750
+profiles:
+
+  NOXI-facing profile   = W750/S375
+  NOXI-J-facing profile = W750/S563
+
+All runs use the full final feature set:
+
+  audio_w2vbert2 + text_xlm_roberta + visual_videomae
+
+All runs use the submitted-style optimization and metadata settings:
+
+  causal TCN
+  gated multimodal fusion
+  fusion_channels = 96
+  hidden_channels = 96
+  levels = 5
+  kernel_size = 5
+  dropout = 0.20
+  modality_dropout = 0.10
+  domain_role metadata
+  metadata output calibration
+  metadata embedding dim = 16
+  metadata dropout = 0.10
+  batch_size = 8
+  epochs = 30
+  patience = 6
+  min_epochs = 5
+  min_delta = 0.001
+  lr = 3e-4
+  weight_decay = 3e-5
+  CCC-only loss
+  seed = 13
+
+Output Directories
+------------------
+Main partner-ladder output root:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/experiments_partner_ladder_submitted_profiles_2026_06_30
+
+Single-corpus self-only output root:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/experiments_selfonly_submitted_profiles_2026_06_30
+
+Manifests for single-corpus filtered runs:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/selfonly_submitted_profiles_2026_06_30
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/partner_ladder_submitted_profiles_2026_06_30
+
+Source W750 manifests:
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/window_stride_2026_06_22/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxi_noxij_w750_s375_multimodal.csv
+
+  /work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/window_stride_2026_06_22/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxi_noxij_w750_s563_multimodal.csv
+
+
+Launch Scripts
+--------------
+Single-corpus self-only runs:
+
+  /work/ACM/ACM-clean/run_logs/run_noxi_noxij_selfonly_single_corpus_2026_06_30.sh
+
+Joint/single-corpus partner ladder:
+
+  /work/ACM/ACM-clean/run_logs/launch_partner_ladder_submitted_profiles_2026_06_30.py
+
+Missing joint self-only completion runs:
+
+  /work/ACM/ACM-clean/run_logs/launch_joint_selfonly_submitted_profiles_2026_06_30.py
+
+The Python launchers were used with setsid so that background jobs survived the
+interactive shell/session boundary. The partner ladder was run with at most two
+parallel GPU jobs and without --preload-tensors to avoid CPU-memory spikes.
+This changes the data-loading strategy only; it does not change the model,
+optimizer, loss, split, or validation metric.
+
+
+Model Variants
+--------------
+self-only
+  Backbone: simple
+
+  Novice and expert streams are processed independently with the same
+  person-level TCN. Each role prediction uses only that role's own fused
+  audio/text/visual features. There is no partner information path before the
+  output. Metadata still applies the same output-calibration scale/bias used in
+  the submitted-style runs.
+
+dyadic shared
+  Backbone: dyadic_shared
+
+  This is the final submitted-style dyadic model family. Audio/text/visual
+  features are first projected and gated separately per role. The fused novice
+  and expert streams are then concatenated as a dyadic input to one temporal
+  encoder. A shared two-channel prediction head emits novice and expert
+  engagement predictions. Partner information is represented implicitly through
+  the shared dyadic hidden state.
+
+gated partner
+  Backbone: gated_partner
+
+  Novice and expert are encoded separately with a shared role encoder. For each
+  target role, the model computes a learned gate over the partner hidden state.
+  The prediction head receives the target hidden state plus the gated partner
+  hidden state. This is explicit partner conditioning, but the amount of partner
+  information is controlled by a learned gate.
+
+attention sepenc
+  Backbone: attention
+
+  "sepenc" means separate encoders. Novice and expert each have their own TCN
+  encoder weights. Each role then attends over a joint self+partner temporal
+  context using the role-specific attention module. The attention is causal and
+  uses the configured past-frame window. The prediction head receives the role's
+  own hidden state plus the attended context. This is explicit self/partner
+  temporal attention with separate role encoders.
+
+
+Metadata Handling
+-----------------
+All submitted-profile partner/self ablations use:
+
+  --metadata-set domain_role
+  --metadata-injection output_calibration
+
+Metadata is not concatenated into the modality gate, TCN input, or standard
+prediction-head input. Instead, it is encoded by a small metadata branch and
+used after the raw two-role prediction:
+
+  raw prediction = TCN/head(fused dyadic or role features)
+  metadata       = domain_role metadata for novice and expert
+  final          = scale(metadata) * raw prediction + bias(metadata)
+
+The scale is conservative in code:
+
+  scale = 1 + 0.1 * tanh(scale_logits)
+
+The metadata branch therefore provides a learned role-specific calibration of
+the raw prediction, not a separate temporal representation.
+
+
+Code Notes for Reproducibility
+------------------------------
+Before running these ablations, the model wrapper was extended so the simple
+and partner backbones could use the same submitted-style settings:
+
+  /work/ACM/ACM-clean/src/acm_pipeline/models_tcn.py
+
+The changes were intentionally narrow:
+
+  1. TCNRegressor and IndependentDyadicTCNRegressor accept causal_tcn.
+  2. The simple backbone supports metadata_injection=output_calibration.
+  3. DyadicRoleHeadTCNRegressor, GatedPartnerTCNRegressor,
+     SharedEncoderRoleAttentionTCNRegressor, and RoleAttentionTCNRegressor
+     accept causal_tcn.
+  4. A generic MetadataOutputCalibratedRegressor wraps non-dyadic-shared
+     partner backbones for output calibration.
+
+This keeps the partner variants comparable to the submitted W750 profile
+without changing their core partner/self modelling logic.
+
+
+Final Partner / Self CCC Table
+------------------------------
+Metrics were extracted from:
+
+  metrics_overall.csv
+  metrics_by_dataset.csv
+
+Final W750 submitted-profile partner/self ablation results:
+
+  Training regime   Variant            Overall   NOXI     NOXI-J
+  ---------------------------------------------------------------
+  NOXI-only S375    self-only          0.8445    0.8445   n/a
+  NOXI-only S375    dyadic shared      0.8328    0.8328   n/a
+  NOXI-only S375    gated partner      0.8642    0.8642   n/a
+  NOXI-only S375    attention sepenc   0.8601    0.8601   n/a
+
+  NOXI-J-only S563  self-only          0.5524    n/a      0.5524
+  NOXI-J-only S563  dyadic shared      0.5804    n/a      0.5804
+  NOXI-J-only S563  gated partner      0.6311    n/a      0.6311
+  NOXI-J-only S563  attention sepenc   0.6043    n/a      0.6043
+
+  Joint S375        self-only          0.8870    0.8299   0.5881
+  Joint S375        dyadic shared      0.9146    0.8456   0.7209
+  Joint S375        gated partner      0.9102    0.8314   0.7220
+  Joint S375        attention sepenc   0.9104    0.8563   0.6973
+
+  Joint S563        self-only          0.8790    0.8133   0.5648
+  Joint S563        dyadic shared      0.9092    0.8346   0.7259
+  Joint S563        gated partner      0.9035    0.8127   0.6478
+  Joint S563        attention sepenc   0.9054    0.8391   0.6633
+
+
+Interpretation
+--------------
+Within single-corpus training, explicit partner modelling helped both NOXI and
+NOXI-J. For NOXI-only, gated partner was strongest, with attention sepenc close
+behind. For NOXI-J-only, gated partner was also strongest.
+
+In joint training, dyadic shared remained the strongest or near-strongest
+overall submitted-style architecture. For S375, dyadic shared had the best
+overall CCC, while attention sepenc gave the highest NOXI-specific CCC but a
+lower NOXI-J CCC. For S563, dyadic shared gave the strongest overall and
+NOXI-J-specific CCC. This supports the paper interpretation that lightweight
+explicit partner conditioning can help in single-corpus regimes, while the
+joint NOXI+NOXI-J setting still favors the shared dyadic submitted-style model.
+
+
+Important Caveat
+----------------
+The earlier partner-ladder runs from 2026-06-29 are still useful historical
+evidence, but they used W500/S125 manifests. The table in this section is the
+clean W750 submitted-profile partner/self ablation table and should be used
+when discussing the final paper architecture.
+

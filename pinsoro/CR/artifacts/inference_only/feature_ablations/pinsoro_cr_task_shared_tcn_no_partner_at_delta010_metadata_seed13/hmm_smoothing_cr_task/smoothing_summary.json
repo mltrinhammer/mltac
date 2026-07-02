@@ -1,0 +1,36 @@
+{
+  "raw_baseline": {
+    "mode": "baseline",
+    "param": "none",
+    "head": "mean",
+    "n_frames": 65346,
+    "kappa": 0.277994319243496,
+    "macro_f1": 0.4046964065890451,
+    "weighted_f1": 0.6579058384726436,
+    "accuracy": 0.626572399228721,
+    "n_sequences": 5,
+    "n_transitions": 65341,
+    "true_flips": 25,
+    "pred_flips": 2815,
+    "true_flip_rate": 0.00038260816332777274,
+    "pred_flip_rate": 0.04308167919070721
+  },
+  "best_hmm": {
+    "mode": "hmm_uniform_start",
+    "param": "mix=1;strength=14;alpha=1",
+    "head": "mean",
+    "n_frames": 65346,
+    "kappa": 0.4495601572319802,
+    "macro_f1": 0.5022824723743455,
+    "weighted_f1": 0.7546233376684668,
+    "accuracy": 0.7396933247635662,
+    "n_sequences": 5,
+    "n_transitions": 65341,
+    "true_flips": 25,
+    "pred_flips": 35,
+    "true_flip_rate": 0.00038260816332777274,
+    "pred_flip_rate": 0.0005356514286588819
+  },
+  "selection_metric": "mean kappa over active heads",
+  "val_hmm_results": "val_hmm_results.csv"
+}

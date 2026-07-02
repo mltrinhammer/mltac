@@ -1,0 +1,16 @@
+{
+  "mode": "hmm_uniform_start",
+  "param": "mix=1;strength=10;alpha=1",
+  "head": "mean",
+  "n_frames": 65346,
+  "kappa": 0.5201203248505405,
+  "macro_f1": 0.47558618799077906,
+  "weighted_f1": 0.7708521733625054,
+  "accuracy": 0.7759465001683347,
+  "n_sequences": 5,
+  "n_transitions": 65341,
+  "true_flips": 25,
+  "pred_flips": 42,
+  "true_flip_rate": 0.00038260816332777274,
+  "pred_flip_rate": 0.0006427817143906582
+}

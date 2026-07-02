@@ -1,0 +1,5 @@
+role,modality,mean_gate_weight
+novice,text_xlm_roberta,0.48050871153198615
+novice,visual_videomae,0.5194912831017731
+expert,text_xlm_roberta,0.535421628829536
+expert,visual_videomae,0.4645783721970491

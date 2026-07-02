@@ -1,0 +1,16 @@
+{
+  "mode": "baseline",
+  "param": "none",
+  "head": "mean",
+  "n_frames": 17295,
+  "kappa": 0.0,
+  "macro_f1": 0.02091073483478547,
+  "weighted_f1": 0.005767227820868846,
+  "accuracy": 0.055160450997398094,
+  "n_sequences": 4,
+  "n_transitions": 17291,
+  "true_flips": 6,
+  "pred_flips": 0,
+  "true_flip_rate": 0.0003470013301717657,
+  "pred_flip_rate": 0.0
+}

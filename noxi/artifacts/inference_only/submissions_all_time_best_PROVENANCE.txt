@@ -1,0 +1,90 @@
+All-time-best assembled submission folder
+Created: 2026-06-21
+
+Source selection based on /work/ACM/Submissions(1).txt and /work/ACM/submission_tracking.
+
+Dataset sources:
+
+- mpiigroupinteraction
+  Source: /work/ACM/submissions_21_06_seperate_base/mpiigroupinteraction
+  Why: Submission 21_06 has the best MPIIGroupInteraction score observed: 0.564145182408968.
+  Note: This source is the clipped 21_06 MPII folder; original 21_06 MPII had 4,713 / 696,428 values outside [0,1], clipped in place before this all-time-best assembly.
+
+- noxi-base
+  Source: /work/ACM/submissions_21_06_seperate_base/noxi-base
+  Why: Submission 21_06 has the best NoXi Base score observed: 0.7983260535111303.
+  Model note: control-repeat joint NOXI+NOXI-J dyadic shared-head model, no metadata, role EMA expert=0.10 novice=0.30.
+
+- noxi-additional
+  Source now used in /work/ACM/submissions_all_time_best: /work/ACM/submission_2306_crsocial_oversample5_allbest_base/noxi-additional
+  Why: selected as the clean forward/reproducible NOXI-additional component for article reporting. The first 2026-06-23 patched submission was observed at about 0.726 on NOXI-additional, rounding to 0.73, close to the older historical best 0.7315234467163103.
+  Model note: this is the w750_s563 NOXI-J metadata expert-followup family applied to NOXI-additional: joint NOXI+NOXI-J dyadic shared multimodal TCN, domain-role metadata output calibration, audio_w2vbert2 + text_xlm_roberta + visual_videomae, window=750, stride=563, hidden=96, levels=5, kernel=5, seed=13. This is preferred going forward over the older group-meanpool-style historical source for cleanliness.
+  Historical note: the absolute historical leaderboard best remains /work/ACM/submission_1806_3/noxi-additional at 0.7315234467163103, likely from a NOXI group-meanpool shared-encoder model with EMA alpha 0.05.
+
+- noxi-j
+  Source now used in /work/ACM/submissions_all_time_best: /work/ACM/submission_2306_crsocial_oversample5_allbest_base/noxi-j
+  Why: selected as the clean forward/reproducible NOXI-J component for article reporting, consistent with the w750 model family used for the NOXI-additional forward selection. The recorded w750 NOXI-J submission result is approximately 0.656, rounding to 0.66, close to the older historical best 0.6604562652650785.
+  Model note: use the w750 NOXI-J metadata family going forward for the article/model-description thread rather than the older preserved /work/ACM/best noxi-j source.
+  Historical note: the absolute historical leaderboard best remains /work/ACM/submission 2/noxi-j at 0.6604562652650785.
+
+- pinsoro-cc social files
+  Source: /work/ACM/submissions_21_06_seperate_base/pinsoro-cc/*/*social_engagement.prediction.csv
+  Why: Submission 21_06 has the best PInSoRo CC Social score observed: 0.3019288513237738.
+
+- pinsoro-cc task files
+  Source: /work/ACM/submission 2/pinsoro-cc/*/*task_engagement.prediction.csv
+  Why: Submission 2 has the best PInSoRo CC Task score observed: 0.23983381862262043.
+  Tracking note: exact match to the first MoE/soft-confidence HMM submission export.
+
+- pinsoro-cr task files
+  Source: /work/ACM/submissions_21_06_seperate_base/pinsoro-cr/*/*task_engagement.prediction.csv
+  Why: Submission 21_06 still has the best PInSoRo CR Task score observed: 0.5117715616752914. The 2026-06-23 no-partner CR-task candidate scored 0.446 on test and was not promoted.
+
+- pinsoro-cr social files
+  Source: /work/ACM/submission_2306_cr/pinsoro-cr/*/*social_engagement.prediction.csv
+  Why: submission_2306_cr improved PInSoRo CR Social to 0.247 on test, replacing the previous all-best CR Social score 0.22716178968331413 from Submission 21_06.
+  Model note: CR-social specialist, true dyadic pre-encoder shared TCN, no head adapter, no post-logit partner, age/gender/role metadata, temporal delta 0.1, HMM smoothing.
+
+Submission-safety clipping applied in this assembled folder only:
+- noxi-additional source files had 120 values below 0 out of 670,884 numeric rows; clipped to 0.0.
+- noxi-j source files had 1,446 values above 1 out of 351,700 numeric rows; clipped to 1.0.
+- Original historical source folders were not modified.
+- Report: /work/ACM/submissions_all_time_best_21_06/numeric_clip_report_2026_06_21.json
+
+Update: 2026-06-23 causal NOXI-base replacement
+- Replaced noxi-base with /work/ACM/submission_2306_causal/noxi-base after leaderboard score 0.807.
+- Reason: this beats the prior all-time-best NOXI-base score 0.7983260535111303 from /work/ACM/submissions_21_06_seperate_base/noxi-base.
+- Model/source: causal NOXI-J metadata sweep model noxij_meta_domain_role_cal_causal_h96_l5_k5_w750_s375_seed13 applied to NOXI base; role EMA expert=0.5, novice=1.0.
+- Did not replace noxi-j from the same causal submission because it scored 0.602, below the current all-time-best 0.6604562652650785.
+- Did not replace noxi-additional from the same causal submission because it scored 0.712, below the current all-time-best 0.7315234467163103.
+- Validation after replacement: noxi-base has 32 files, 979,890 numeric rows, values in [0.0, 0.97612077], no numeric errors.
+
+Update: 2026-06-24 MPIIGroupInteraction replacement
+- Replaced mpiigroupinteraction with /work/ACM/submission_2406_meta_reg_w750_s563_noxi_only/mpiigroupinteraction after leaderboard score 0.581.
+- Reason: this beats the prior all-time-best MPII score 0.564145182408968 from /work/ACM/submissions_21_06_seperate_base/mpiigroupinteraction.
+- Model/source: causal group-meanpool multimodal TCN architecture transfer from the NOXI meta_reg_w750_s563 causal metadata family.
+- MPII model path: /work/ACM/ACM-clean/outputs/experiments/mpii_group_trainall_arch_transfer_2026_06_24/mpii_group_causal_meta_reg_w750_s563_trainall_seed13.
+- MPII architecture/settings: group-meanpool over variable-person frame embeddings, causal TCN, visual_videomae + audio_egemaps + text_xlm_roberta, window=750, stride=563, hidden=96, levels=5, kernel=5, dropout=0.25, modality_dropout=0.15, learning_rate=3e-4, weight_decay=1e-4, CCC loss, fixed 18 epochs, seed=13.
+- MPII training/export protocol: trained on all labeled MPII validation sessions 008/009/010/026/027/028 and exported for test_internal sessions 001-006; therefore no held-out MPII validation score was used for this final train-all export.
+- Same submitted folder also scored NOXI-base 0.797, NOXI-additional 0.716, and NOXI-J 0.656. These NOXI-family components were not promoted because the current all-time-best scores remain higher: NOXI-base 0.807, NOXI-additional 0.7315234467163103, NOXI-J 0.6604562652650785.
+- NOXI-J reproducibility note for the 0.656 result: /work/ACM/ACM-clean/MoE/noxi_joint_settings/experiments_causal_hp_window_2026_06_23/meta_causal_reg_h96_l5_k5_w750_s563_seed13, causal dyadic shared-head multimodal TCN, domain-role metadata output calibration, audio_w2vbert2 + text_xlm_roberta + visual_videomae, window=750, stride=563, hidden=96, levels=5, kernel=5, dropout=0.25, modality_dropout=0.15, learning_rate=3e-4, weight_decay=1e-4, seed=13, NOXI-J EMA expert=0.02 and novice=0.05.
+
+Update: 2026-06-24 clean forward NOXI-additional/NOXI-J selection
+- For article cleanliness and future model selection, /work/ACM/submissions_all_time_best now treats the 2026-06-23 patched w750 NOXI-J metadata-family predictions as the selected forward components for both noxi-additional and noxi-j.
+- noxi-additional source: /work/ACM/submission_2306_crsocial_oversample5_allbest_base/noxi-additional. Observed NOXI-additional score from the patched submission was about 0.726, rounding to 0.73. This is slightly below the older 0.7315234467163103 historical best but much cleaner to describe.
+- noxi-j source: /work/ACM/submission_2306_crsocial_oversample5_allbest_base/noxi-j, used as the corresponding clean w750-family NOXI-J component going forward. The historical 0.6604562652650785 /work/ACM/best noxi-j result is retained as an absolute-score reference, not the preferred article model.
+- File check at update time: /work/ACM/submissions_all_time_best/noxi-additional and /work/ACM/submissions_all_time_best/noxi-j already matched the 2026-06-23 patched source folders exactly, so no file copy was required.
+
+/work/ACM/submissions_all_time_best PinSoRo-CC social promotion, 2026-06-24
+- Confirmed NOXI-family active folders: noxi-base matches /work/ACM/submission_2306_causal/noxi-base, the source that scored NOXI-base 0.807; noxi-additional and noxi-j match /work/ACM/submission_2306_crsocial_oversample5_allbest_base for the clean w750 forward selections.
+- Promoted the test-confirmed improved PinSoRo-CC social predictions into /work/ACM/submissions_all_time_best/pinsoro-cc by copying only pinsoro-cc/*/*.social_engagement.prediction.csv from the staged source. Task files were left unchanged.
+- CC-social source: /work/ACM/submissions_all_time_best_MOVE_TO_ACM_PROJECT_BEST_PINSORO_CC_SOCIAL/pinsoro-cc, originally from /work/ACM/submission_2406_ccsocial_bias_p1_a-1p5_c075/pinsoro-cc. Official CK PInSoRo CC Social score recorded in the source README: 0.334.
+- Submission-tree cleanup: moved helper/staging directories out of /work/ACM/submissions_all_time_best so its top level now contains only dataset folders: mpiigroupinteraction, noxi-additional, noxi-base, noxi-j, pinsoro-cc, pinsoro-cr.
+
+Update: 2026-06-25 PinSoRo-CC task replacement
+- Replaced only /work/ACM/submissions_all_time_best/pinsoro-cc/*/*.task_engagement.prediction.csv from /work/ACM/df752967-5f83-45d0-b2ad-634efb8a4847.zip.
+- Reason: user reported this PinSoRo-CC task component scored 0.352, improving over the previous all-time-best CC-task score 0.23983381862262043.
+- Source identification from /work/ACM/care_package_cc_task_social_handoff_250625/README.md and cc_model_prediction_overview_2506.md: submission_transition_cc / submission_2506_taskhmm_gateff_cc, clean core task_shared_linear_shared_tcn with bias [+0.5, -0.25, -0.5, -0.25] plus HMM; local task validation 0.48157; official task 0.352.
+- The existing PinSoRo-CC social files were left untouched. Recursive diff against the pre-update backup reported changes only for the 12 task_engagement prediction files.
+- Backup of the previous pinsoro-cc folder: /work/ACM/submissions_all_time_best_BACKUP_pinsoro_cc_before_task352_2026_06_25/pinsoro-cc.
+- Validation after replacement: 12 task files, 321,474 rows, no blanks and no labels outside {goaloriented, aimless, adultseeking, noplay}. Label counts: goaloriented 258,903; aimless 37,716; adultseeking 878; noplay 23,977.

@@ -1,0 +1,34 @@
+Submission folder: /work/ACM/submission_2306_best_noxij
+Created: 2026-06-23
+Scope: NOXI-family prediction folder only: noxi-base, noxi-j, noxi-additional.
+
+Model:
+/work/ACM/ACM-clean/MoE/noxi_joint_settings/experiments_noxij_metadata_expert_hp_followup_2026_06_22/noxij_meta_domain_role_cal_expert_k5_l5_h96_w750_s563_seed13/model_best.pt
+
+Architecture/settings:
+- dyadic_shared multimodal TCN
+- training data: joint NOXI + NOXI-J
+- metadata: domain_role, output_calibration injection
+- modalities: audio_w2vbert2, text_xlm_roberta, visual_videomae
+- window/stride: w750_s563 (~30s window, ~22.5s stride)
+- HP: lr=3e-4, weight_decay=3e-5, kernel=5, hidden=96, levels=5, dropout=0.20, fusion=96, modality_dropout=0.10, batch=8
+
+Export manifest:
+/work/ACM/ACM-clean/MoE/noxi_joint_settings/manifests/window_stride_2026_06_22/audio_w2vbert2__text_xlm_roberta__visual_videomae_noxi_noxij_w750_s563_multimodal.csv
+
+EMA used for all exported datasets:
+- expert alpha=0.02
+- novice alpha=0.02
+
+Validation rationale:
+This was the best NOXI-J expert-followup run by NOXI-J EMA overall and strong by role:
+- NOXI-J EMA overall CCC: 0.788696
+- NOXI-J expert EMA CCC: 0.741394
+- NOXI-J novice EMA CCC: 0.782785
+It is not intended as the conservative best NOXI-only model, but it is useful as a best-NOXI-J candidate applied to NOXI, NOXI-J, and NOXI-additional.
+
+Export validation:
+- noxi-base: 16 sessions, 32 files, 979890 rows, range [0.0, 0.9782892466]
+- noxi-j: 10 sessions, 20 files, 351700 rows, range [0.0, 1.0]
+- noxi-additional: 12 sessions, 24 files, 670892 rows, range [0.0, 0.9640148878]
+- Required expert.engagement.prediction.csv and novice.engagement.prediction.csv files are present for every session.

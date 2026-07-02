@@ -1,0 +1,5 @@
+role,head,n_frames,kappa,macro_f1,weighted_f1,accuracy
+purple,task,65346,0.0,0.031435537071561735,0.00843591923127516,0.06708903375876106
+purple,social,17295,0.0,0.02091073483478547,0.005767227820868846,0.055160450997398094
+yellow,task,0,nan,nan,nan,nan
+yellow,social,0,nan,nan,nan,nan

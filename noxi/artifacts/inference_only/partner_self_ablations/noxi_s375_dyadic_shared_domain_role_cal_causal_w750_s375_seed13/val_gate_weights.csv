@@ -1,0 +1,7 @@
+role,modality,mean_gate_weight
+novice,audio_w2vbert2,0.33119760393795106
+novice,text_xlm_roberta,0.3618678950557002
+novice,visual_videomae,0.30693450124570226
+expert,audio_w2vbert2,0.31006001569627417
+expert,text_xlm_roberta,0.3861548062991473
+expert,visual_videomae,0.303785168004919
