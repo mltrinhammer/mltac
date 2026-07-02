@@ -1,0 +1,16 @@
+{
+  "mode": "forward_filter",
+  "param": "mix=1;strength=12;temp=1;alpha=1",
+  "head": "mean",
+  "n_frames": 215692,
+  "kappa": 0.3940271958621673,
+  "macro_f1": 0.4294263932478738,
+  "weighted_f1": 0.6102210795397387,
+  "accuracy": 0.6186506685458895,
+  "n_sequences": 14,
+  "n_transitions": 215678,
+  "true_flips": 148,
+  "pred_flips": 354,
+  "true_flip_rate": 0.0006862081436215099,
+  "pred_flip_rate": 0.0016413356948784762
+}

@@ -1,0 +1,19 @@
+
+=== 2026-06-24 13:27:53 ===
+$ /usr/bin/python3 /workspace/ACM/ACM-clean/MoE/pinsoro_noxi_settings/train_person_interaction_fusion_temporal.py --manifest /workspace/ACM/ACM-clean/MoE/moe_data/outputs/windows_w2400_s1200/audio_w2vbert2_w2400_s1200_dyadic.csv /workspace/ACM/ACM-clean/MoE/moe_data/outputs/windows_w2400_s1200/text_xlm_roberta_w2400_s1200_dyadic.csv /workspace/ACM/ACM-clean/MoE/moe_data/outputs/windows_w2400_s1200/visual_videomae_w2400_s1200_dyadic.csv --domain-scope CC --output-root /workspace/ACM/ACM-clean/MoE/experiments/pinsoro_cc_core_architecture_delta010_metadata --run-name pinsoro_cc_task_shared_linear_shared_tcn_delta010_metadata_seed13 --fusion-mode concat --fusion-channels 64 --person-hidden-channels 64 --person-levels 5 --person-kernel-size 11 --dropout 0.2 --modality-dropout 0.1 --causal-tcn --encoder-sharing shared --head-architecture shared_tcn --head-adapter-levels 1 --interaction-mode linear --interaction-hidden-channels 32 --interaction-kernel-size 5 --interaction-scale 0.1 --metadata-mode age_gender_role --metadata-embedding-dim 16 --metadata-dropout 0.2 --cc-task-weighting targeted --cc-task-target-class0-weight 1.0 --cc-task-target-class1-weight 2.0 --cc-task-target-class2-weight 1.0 --cc-task-target-class3-weight 1.0 --temporal-delta-weight 0.1 --soft-label-mode none --active-heads task --batch-size 32 --num-workers 2 --epochs 30 --patience 6 --min-epochs 5 --min-delta 0.001 --lr 1e-3 --weight-decay 1e-4 --seed 13 --device cuda
+epoch=001 train_loss=2.04652 val_organizer_score=0.09808 best_epoch=1
+epoch=002 train_loss=1.48032 val_organizer_score=0.12267 best_epoch=2
+epoch=003 train_loss=1.29368 val_organizer_score=0.23957 best_epoch=3
+epoch=004 train_loss=1.17245 val_organizer_score=0.20428 best_epoch=3
+epoch=005 train_loss=1.15628 val_organizer_score=0.16399 best_epoch=3
+epoch=006 train_loss=1.15367 val_organizer_score=0.23569 best_epoch=3
+epoch=007 train_loss=1.00467 val_organizer_score=0.23882 best_epoch=3
+epoch=008 train_loss=0.93707 val_organizer_score=0.22165 best_epoch=3
+epoch=009 train_loss=0.92477 val_organizer_score=0.27886 best_epoch=9
+epoch=010 train_loss=0.86434 val_organizer_score=0.25131 best_epoch=9
+epoch=011 train_loss=0.80450 val_organizer_score=0.32439 best_epoch=11
+epoch=012 train_loss=0.96814 val_organizer_score=0.15707 best_epoch=11
+epoch=013 train_loss=0.86708 val_organizer_score=0.29700 best_epoch=11
+epoch=014 train_loss=0.83027 val_organizer_score=0.23784 best_epoch=11
+epoch=015 train_loss=0.80196 val_organizer_score=0.37692 best_epoch=15
+epoch=016 train_loss=0.76290 val_organizer_score=0.27002 best_epoch=15
