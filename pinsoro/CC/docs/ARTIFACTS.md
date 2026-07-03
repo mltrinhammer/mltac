@@ -19,7 +19,7 @@
 - `artifacts/inference_only/submitted_models/`
 - `artifacts/inference_only/feature_ablations/`
 - `artifacts/inference_only/partner_encoder_ablations/`
-- `artifacts/inference_only/sensitivity/` currently contains a placeholder for the pending CC sensitivity package.
+- `artifacts/inference_only/sensitivity/` contains the CC canonical/numbered_blank/augmented soft-kappa sensitivity artifacts.
 
 ## Final CC predictions
 

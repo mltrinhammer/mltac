@@ -1,0 +1,3 @@
+head,run,hmm_setting,original_canonical_frames,original_canonical_kappa,extended_frames,extended_soft_kappa,extended_confidence_weighted_soft_kappa,added_only_frames,added_only_soft_kappa,added_only_confidence_weighted_soft_kappa
+CC task,cc_task_shared_linear,mix=1.0;strength=8.0;alpha=1.0,215692,0.4288467555086964,563512,0.22719165198126592,0.2717758212093032,347820,0.10832428244884669,0.10023257376162534
+CC social submitted,cc_social_submitted_head_adapter_bias,mix=1.0;strength=12.0;alpha=1.0,184616,0.5535517265383388,563512,0.22952224928095996,0.2908061566489893,378896,0.10437050458193836,0.10281758140260418

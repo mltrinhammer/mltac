@@ -1,0 +1,532 @@
+CC HMM sensitivity method to mirror in CR
+========================================
+
+Purpose
+-------
+This note documents how the CC-task and submitted CC-social HMM sensitivity
+tables were computed, so the CR analysis can be checked against the same
+method. The key point is that the CC analysis compared canonical annotations
+against an augmented target set that fills blank canonical regions using
+numbered annotation files, then reported both unweighted and confidence-weighted
+soft kappa.
+
+
+CC files used
+-------------
+RunPod root:
+
+  /workspace/ACM
+
+CC-task sensitivity:
+
+  /workspace/ACM/ACM-clean/MoE/experiments/cc_annotator_sensitivity_2906
+
+Submitted CC-social sensitivity:
+
+  /workspace/ACM/ACM-clean/MoE/experiments/cc_annotator_sensitivity_submitted_social_2906
+
+Main summary files:
+
+  selected_by_confidence_weighted_soft_kappa.csv
+  coverage.csv
+  sensitivity_metrics.csv
+
+Full validation logits used for post-hoc HMM:
+
+  full_val_scores/<run_name>/val_prediction_scores.csv.gz
+
+Scripts that produced the summaries:
+
+  /workspace/ACM/run_cc_annotator_sensitivity_2906.py
+  /workspace/ACM/run_cc_annotator_sensitivity_submitted_social_2906.py
+
+
+Models evaluated
+----------------
+CC-task:
+
+  run name: cc_task_shared_linear
+  head: task
+  model dir:
+    /workspace/ACM/ACM-clean/MoE/experiments/pinsoro_cc_core_architecture_delta010_metadata/pinsoro_cc_task_shared_linear_shared_tcn_delta010_metadata_seed13
+
+Submitted CC-social:
+
+  run name: cc_social_submitted_head_adapter_bias
+  head: social
+  model dir:
+    /workspace/ACM/ACM-clean/MoE/experiments/pinsoro_head_architectures_temporal_delta010_metadata/pinsoro_cc_headarch_head_adapters_delta010_metadata_seed13
+  logit bias applied before scoring/HMM:
+    [0.0, 0.0, 1.0, -1.5, 0.75]
+
+The submitted CC-social model is not the older hidden-attention social model.
+If CR has a comparable submitted social model, use the submitted model and
+apply the same kind of post-hoc logit bias if that was part of the submitted
+recipe.
+
+
+Target construction
+-------------------
+For each validation frame, targets were built from:
+
+  canonical annotation file:
+    <role>.<head_stem>.annotation.csv
+
+  numbered annotation files:
+    <role>.<head_stem>.1.annotation.csv
+    <role>.<head_stem>.2.annotation.csv
+    <role>.<head_stem>.3.annotation.csv
+
+where head_stem is:
+
+  task   -> task_engagement
+  social -> social_engagement
+
+For each frame:
+
+1. If the canonical annotation has a valid label, use it as a one-hot target.
+   Source is "canonical" and confidence is 1.0.
+
+2. If the canonical annotation is blank/missing, collect valid labels from the
+   numbered annotation files.
+
+3. If numbered labels exist, convert their votes into a soft target
+   distribution. Example: votes [parallel, parallel, associative] become
+   parallel=2/3 and associative=1/3. Source is "numbered_blank".
+
+4. Confidence for numbered_blank frames is max vote share. In the example
+   above, confidence is 2/3.
+
+5. If neither canonical nor numbered labels exist, the frame remains missing.
+
+
+Coverage reporting
+------------------
+For reporting, use before/after coverage rather than only raw internal names.
+
+CC-task coverage:
+
+  total frames: 563,520
+  canonical valid: 215,692
+  added numbered-annotation frames: 347,820
+  missing after numbered annotations: 8
+
+  before additional annotations:
+    labeled = 215,692
+    missing = 347,828
+    coverage = 38.28%
+    added-annotation share = 0.00%
+
+  after additional annotations:
+    labeled = 563,512
+    missing = 8
+    coverage = 99.999%
+    added-annotation share = 61.72%
+
+Submitted CC-social coverage:
+
+  total frames: 563,520
+  canonical valid: 184,616
+  added numbered-annotation frames: 378,896
+  missing after numbered annotations: 8
+
+  before additional annotations:
+    labeled = 184,616
+    missing = 378,904
+    coverage = 32.76%
+    added-annotation share = 0.00%
+
+  after additional annotations:
+    labeled = 563,512
+    missing = 8
+    coverage = 99.999%
+    added-annotation share = 67.24%
+
+
+Metric definitions
+------------------
+The HMM always produces one hard predicted class per frame.
+
+soft_kappa:
+
+  Kappa computed from a soft confusion matrix. The target can be one-hot
+  canonical labels or soft vote distributions from numbered annotation files.
+  Prediction is still a single hard class.
+
+confidence_weighted_soft_kappa:
+
+  Same soft-confusion calculation, but numbered_blank frames are weighted by
+  confidence = max vote share. Canonical frames have confidence 1.0.
+
+For canonical-only rows, soft_kappa and confidence_weighted_soft_kappa are
+identical because all canonical labels are hard one-hot targets with confidence
+1.0.
+
+For augmented rows, confidence_weighted_soft_kappa downweights uncertain
+numbered-annotation frames. This is why it can be higher than the unweighted
+augmented soft_kappa.
+
+
+HMM selection
+-------------
+The sensitivity scripts sweep:
+
+  transition_mixes:     0.5, 0.75, 1.0
+  transition_strengths: 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0
+  transition_alpha:     1.0
+
+Transition matrices are estimated from train_internal labels for the same
+domain and model manifests.
+
+The selected setting is the row with the highest
+confidence_weighted_soft_kappa for each target subset:
+
+  canonical
+  numbered_blank
+  augmented
+
+For the CC tables we reported canonical and augmented.
+
+
+CC-task selected HMM results
+----------------------------
+Run: cc_task_shared_linear
+
+Canonical:
+
+  HMM setting: mix=1.0;strength=8.0;alpha=1.0
+  frames: 215,692
+  soft_kappa: 0.428847
+  confidence_weighted_soft_kappa: 0.428847
+  HMM prediction flip rate: 0.001312
+
+Augmented:
+
+  HMM setting: mix=1.0;strength=8.0;alpha=1.0
+  frames: 563,512
+  soft_kappa: 0.227192
+  confidence_weighted_soft_kappa: 0.271776
+  HMM prediction flip rate: 0.000955
+
+
+Submitted CC-social selected HMM results
+----------------------------------------
+Run: cc_social_submitted_head_adapter_bias
+
+Canonical:
+
+  HMM setting: mix=1.0;strength=12.0;alpha=1.0
+  frames: 184,616
+  soft_kappa: 0.553552
+  confidence_weighted_soft_kappa: 0.553552
+  HMM prediction flip rate: 0.000623
+
+Augmented:
+
+  HMM setting: mix=1.0;strength=12.0;alpha=1.0
+  frames: 563,512
+  soft_kappa: 0.229522
+  confidence_weighted_soft_kappa: 0.290806
+  HMM prediction flip rate: 0.000440
+
+
+Flip-rate calculation
+---------------------
+The flip rate reported here is the prediction flip rate after HMM decoding.
+
+For a given subset, group predicted frames by:
+
+  session_id, role, head
+
+Sort within each group by frame_idx. Then:
+
+  pred_flips = count(pred[t] != pred[t - 1])
+  pred_transitions = total adjacent frame pairs in the subset
+  flip_rate = pred_flips / pred_transitions
+
+The CC derivation used the selected HMM setting and computed flip rate over the
+same target subset being reported:
+
+  canonical -> only canonical-valid frames
+  augmented -> canonical-valid plus numbered_blank frames
+
+
+Why augmented HMM kappa drops
+-----------------------------
+The drop from canonical to augmented does not mean the HMM suddenly got worse
+on the same data. The evaluation target changed substantially.
+
+In CC-task, added numbered annotations constitute 61.72% of all frames.
+In submitted CC-social, added numbered annotations constitute 67.24% of all
+frames.
+
+The augmented set is therefore dominated by frames that were blank in the
+canonical files. These frames are likely more ambiguous, distributionally
+different, and noisier. Plain augmented soft_kappa treats every added frame
+equally. Confidence-weighted soft kappa lowers the influence of frames where
+the numbered annotators disagree, which is why it recovers some of the drop.
+
+
+What the CR agent should match
+------------------------------
+For CR, please check whether the CR sensitivity analysis:
+
+1. Uses the intended submitted/selected CR model, not an older architecture.
+
+2. Applies any submitted-model logit bias before raw scoring and HMM decoding,
+   if such a bias was part of the CR submitted recipe.
+
+3. Builds canonical and numbered_blank targets the same way:
+   canonical takes precedence; numbered annotations fill only canonical blanks.
+
+4. Reports coverage as before/after:
+   labeled frames, missing frames, coverage percentage, and added-annotation
+   share of total frames.
+
+5. Selects HMM settings by confidence_weighted_soft_kappa separately for
+   canonical, numbered_blank, and augmented.
+
+6. Reports both:
+   soft_kappa
+   confidence_weighted_soft_kappa
+
+7. Computes HMM flip rate after decoding, over the same subset being reported.
+
+If CR did something different, the most important things to audit are target
+construction, whether canonical frames were mixed with numbered labels, whether
+logit bias was applied before HMM, and whether the selected HMM setting was
+chosen by ordinary kappa or confidence-weighted soft kappa.
+
+
+Exact kappa computations to reproduce
+-------------------------------------
+There are three related values that should be reproduced for CR:
+
+1. Canonical HMM kappa
+
+   This is the HMM-decoded kappa on frames with canonical annotations only.
+   In the CC scripts this appears as:
+
+     target_subset = canonical
+     mode = hmm
+     soft_kappa
+
+   Because canonical labels are hard one-hot labels with confidence 1.0,
+   this is equivalent to ordinary Cohen kappa between:
+
+     y_true = canonical hard label
+     y_pred = HMM-decoded hard prediction
+
+2. Added/augmented HMM kappa
+
+   This is the HMM-decoded kappa after including the additional numbered
+   annotation files. In the CC scripts this appears as:
+
+     target_subset = augmented
+     mode = hmm
+     soft_kappa
+
+   The augmented subset includes:
+
+     canonical frames
+     plus frames where canonical is blank but numbered annotations exist
+
+   For canonical frames, the target is one-hot. For added numbered-annotation
+   frames, the target is a vote distribution across classes. Therefore this is
+   not a hard-label Cohen kappa on only the added frames. It is a soft-confusion
+   kappa on the combined canonical + added target set.
+
+   If CR wants "added annotations only", use:
+
+     target_subset = numbered_blank
+     mode = hmm
+     soft_kappa
+
+   In the CC selected summaries those were:
+
+     CC-task numbered_blank HMM soft_kappa: 0.108324
+     submitted CC-social numbered_blank HMM soft_kappa: 0.104371
+
+   But the main before/after comparison used canonical vs augmented, not
+   canonical vs numbered_blank-only.
+
+3. Confidence-weighted soft kappa
+
+   This is the same soft-confusion kappa as above, but the added
+   numbered-annotation frames are weighted by annotation confidence.
+
+   In the CC scripts this appears as:
+
+     confidence_weighted_soft_kappa
+
+   Canonical frames receive weight 1.0. Added numbered-annotation frames receive
+   weight equal to the largest vote share among available numbered annotators.
+
+
+Soft-confusion kappa formula
+----------------------------
+For every evaluated frame i:
+
+  p_i = HMM-decoded hard prediction class
+  t_i[c] = target mass for class c
+  w_i = confidence weight
+
+For unweighted soft_kappa:
+
+  w_i = 1.0 for every evaluated frame
+
+For confidence_weighted_soft_kappa:
+
+  w_i = 1.0 for canonical frames
+  w_i = max_c t_i[c] for numbered_blank frames
+
+Build a soft confusion matrix C with shape [n_classes, n_classes]:
+
+  C[true_class, predicted_class] += target_mass
+
+In pseudocode:
+
+  C = zeros(n_classes, n_classes)
+
+  for frame in evaluated_frames:
+      pred = hmm_prediction[frame]
+      weight = frame_weight[frame]
+      target = target_distribution[frame]
+
+      for true_class in classes:
+          C[true_class, pred] += weight * target[true_class]
+
+Then compute kappa from C:
+
+  n = sum(C)
+  observed = trace(C) / n
+  expected = dot(row_sums(C), col_sums(C)) / (n * n)
+  kappa = (observed - expected) / (1 - expected)
+
+This is exactly what the CC sensitivity scripts do through soft_kappa(conf) and
+soft_kappa(confw).
+
+
+Target subset definitions
+-------------------------
+Use these definitions consistently when reproducing CC:
+
+canonical:
+
+  Include only frames where the canonical annotation file has a valid label.
+  Target distribution is one-hot. Confidence is 1.0.
+
+numbered_blank:
+
+  Include only frames where canonical is blank/missing and one or more numbered
+  annotation files provide a valid label. Target distribution is the normalized
+  vote distribution across numbered annotators. Confidence is max vote share.
+
+augmented:
+
+  Include both canonical and numbered_blank frames.
+
+The "before additional annotations" row is canonical.
+The "after additional annotations" row is augmented.
+The "added annotations only" row, if needed, is numbered_blank.
+
+
+Concrete CC selected values
+---------------------------
+CC-task, selected HMM setting:
+
+  mix=1.0;strength=8.0;alpha=1.0
+
+  canonical soft_kappa:                    0.428847
+  canonical confidence_weighted_soft_kappa: 0.428847
+
+  numbered_blank soft_kappa:                    0.108324
+  numbered_blank confidence_weighted_soft_kappa: 0.100233
+
+  augmented soft_kappa:                    0.227192
+  augmented confidence_weighted_soft_kappa: 0.271776
+
+Submitted CC-social, selected HMM setting:
+
+  mix=1.0;strength=12.0;alpha=1.0
+
+  canonical soft_kappa:                    0.553552
+  canonical confidence_weighted_soft_kappa: 0.553552
+
+  numbered_blank soft_kappa:                    0.104371
+  numbered_blank confidence_weighted_soft_kappa: 0.102818
+
+  augmented soft_kappa:                    0.229522
+  augmented confidence_weighted_soft_kappa: 0.290806
+
+
+Minimal reproduction pseudocode
+-------------------------------
+This is the shortest faithful version of the CC calculation:
+
+  # 1. Read full validation logits for the selected model.
+  keys, logits = read_scores(val_prediction_scores.csv.gz, head)
+
+  # 2. Apply submitted logit bias if this model used one.
+  #    CC-social submitted used [0.0, 0.0, 1.0, -1.5, 0.75].
+  logits = logits + logit_bias
+
+  # 3. Build targets.
+  targets = []
+  for frame in keys:
+      if canonical_label_exists(frame):
+          target = one_hot(canonical_label)
+          source = "canonical"
+          confidence = 1.0
+      else:
+          votes = valid_numbered_annotation_votes(frame)
+          if votes:
+              target = normalized_vote_distribution(votes)
+              source = "numbered_blank"
+              confidence = max(target)
+          else:
+              source = "missing"
+
+  # 4. Build train transition matrices from train_internal labels.
+  transitions = estimate_transition_matrices(train_internal_labels)
+
+  # 5. Apply HMM/Viterbi to log-softmax logits.
+  hmm_pred = viterbi_decode(log_softmax(logits), transitions, selected_strength)
+
+  # 6. Compute soft_kappa for each subset.
+  for subset in ["canonical", "numbered_blank", "augmented"]:
+      frames = select_frames_by_source(subset)
+      C = soft_confusion(frames, hmm_pred, targets, weights=None)
+      soft_kappa = kappa_from_confusion(C)
+
+      Cw = soft_confusion(frames, hmm_pred, targets, weights=confidence)
+      confidence_weighted_soft_kappa = kappa_from_confusion(Cw)
+
+For canonical, C and Cw are identical.
+
+
+Important: no retraining with additional annotations
+----------------------------------------------------
+The CC sensitivity analysis did not retrain the models with the additional
+numbered annotation files.
+
+The additional annotations were used only for post-hoc evaluation target
+construction. The workflow was:
+
+  1. Use an already-trained CC model.
+  2. Export or read that model's validation logits.
+  3. Optionally apply the submitted-model logit bias.
+  4. Apply HMM/Viterbi smoothing to the existing logits.
+  5. Evaluate the same predictions against different target sets:
+
+       canonical       = original canonical annotations only
+       numbered_blank  = added annotations only, where canonical was blank
+       augmented       = canonical + numbered_blank
+
+Therefore, the canonical-to-augmented kappa drop means the same trained model
+agrees less with the broader augmented evaluation target set. It does not mean
+that a model trained with the additional annotations performed worse.
+
+If CR wants to study the effect of training with the additional annotations,
+that requires a separate training run where those labels are incorporated into
+training targets. That is not what these CC sensitivity numbers measure.

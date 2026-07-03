@@ -47,4 +47,4 @@ bash scripts/reproduce_cc_task_hmm_from_logits.sh
 
 ## Sensitivity
 
-`sensitivity/` is currently a placeholder. The June 30 note says the CC task sensitivity analysis used the correct submitted task base model and that CC social was removed from HMM sensitivity because the submitted social interpretation is no-HMM. The actual sensitivity outputs still need to be added.
+`sensitivity/` contains the CC soft-kappa sensitivity package. It reports canonical, numbered-blank, and augmented target subsets for CC task and submitted CC social, including confidence-weighted soft kappa.

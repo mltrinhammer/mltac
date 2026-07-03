@@ -75,7 +75,7 @@ The June 30 note states that the submitted CC social interpretation used no HMM.
 - `artifacts/runs/`: final and partner-ablation run directories with configs, best checkpoints, logs, compact metrics, and submission-format outputs. Large cached score/prediction dumps are not bundled.
 - `artifacts/manifests/windows_w2400_s1200/`: dyadic and individual manifests used by the CC runs.
 - `artifacts/ablation_outputs/pinsoro_cc_submitted_checkpoint_modality_masks_3006/`: cached submitted-checkpoint modality-mask metrics and summary.
-- `artifacts/inference_only/`: CR-aligned symlinked view of submitted models, feature ablations, partner ablations, and a sensitivity placeholder.
+- `artifacts/inference_only/`: CR-aligned view of submitted models, feature ablations, partner ablations, and sensitivity artifacts.
 - `submissions/pinsoro-cc/`: copied final CC prediction folder.
 - `configs/`: named copies of the relevant run configs.
 

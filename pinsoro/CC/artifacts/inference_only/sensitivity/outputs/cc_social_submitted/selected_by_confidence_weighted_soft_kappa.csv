@@ -1,0 +1,7 @@
+run,head,mode,param,target_subset,n_frames,soft_kappa,confidence_weighted_soft_kappa,soft_nll,confidence_weighted_soft_nll
+cc_social_submitted_head_adapter_bias,social,hmm,mix=1.0;strength=12.0;alpha=1.0,canonical,184616,0.5535517265383388,0.5535517265383388,0.9488994397526128,0.9488994397526128
+cc_social_submitted_head_adapter_bias,social,hmm,mix=1.0;strength=12.0;alpha=1.0,numbered_blank,378896,0.10437050458193836,0.10281758140260418,2.224536627888344,2.2320685417209862
+cc_social_submitted_head_adapter_bias,social,hmm,mix=1.0;strength=12.0;alpha=1.0,augmented,563512,0.22952224928095996,0.2908061566489893,1.8066164502792506,1.6212935825546937
+cc_task_shared_linear,task,hmm,mix=1.0;strength=8.0;alpha=1.0,canonical,215692,0.4288467555086964,0.4288467555086964,1.139776902762971,1.139776902762971
+cc_task_shared_linear,task,hmm,mix=1.0;strength=8.0;alpha=1.0,numbered_blank,347820,0.10832417438002455,0.10023281051476461,1.9647724379648914,1.9962521768858994
+cc_task_shared_linear,task,hmm,mix=1.0;strength=8.0;alpha=1.0,augmented,563512,0.2271917771511134,0.2717755979547112,1.648994003825441,1.5397520716756543
